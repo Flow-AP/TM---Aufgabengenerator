@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TM Aufgabengenerator – Stereostatik</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">TM&nbsp;Aufgabengenerator <span>Stereostatik</span></div>
+    <nav class="tools">
+      <button data-act="new" title="Neue Aufgabe">Neu</button>
+      <button data-act="open" title="Aufgabe aus JSON-Datei laden (Strg+O)">Öffnen</button>
+      <button data-act="save" title="Aufgabe als JSON-Datei speichern (Strg+S)">Speichern</button>
+      <span class="sep"></span>
+      <button data-act="svg" title="Zeichnung als SVG exportieren">SVG</button>
+      <button data-act="png" title="Zeichnung als PNG exportieren">PNG</button>
+      <button data-act="print" title="Aufgabenblatt drucken / als PDF speichern">Drucken</button>
+      <span class="sep"></span>
+      <button data-act="undo" title="Rückgängig (Strg+Z)">↶</button>
+      <button data-act="redo" title="Wiederholen (Strg+Y)">↷</button>
+      <button data-act="fit" title="Zeichnung einpassen (F)">Einpassen</button>
+      <span class="sep"></span>
+      <select id="examples" title="Beispielaufgabe laden">
+        <option value="">Beispiel laden …</option>
+        <option value="0">Balken mit Kragarm</option>
+        <option value="1">Balken mit Seil</option>
+        <option value="2">Dreigelenkrahmen</option>
+        <option value="3">Stabwerk</option>
+      </select>
+    </nav>
+  </header>
+
+  <div id="main">
+    <aside id="palette" aria-label="Bauteile"></aside>
+
+    <div id="stage">
+      <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+        <g id="viewport">
+          <g id="grid"></g>
+          <g id="drawing"></g>
+          <g id="overlay"></g>
+        </g>
+      </svg>
+      <div id="toast" role="status"></div>
+    </div>
+
+    <aside id="side">
+      <h3 id="props-title">Eigenschaften</h3>
+      <div id="props"></div>
+    </aside>
+  </div>
+
+  <footer id="status"><span id="hint"></span><span id="coords"></span></footer>
+  <div id="ghost"></div>
+  <input type="file" id="fileIn" accept=".json,application/json" hidden>
+
+  <script src="js/model.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/examples.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
