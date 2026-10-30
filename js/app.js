@@ -20,6 +20,10 @@
     hover: null,
     drop: null,
     mouse: null,
+    mode: 'edit', // 'edit' | 'solve'
+    res: null,
+    sopt: { show: { N: true, Q: true, M: true }, layout: 'stack', scale: 1, freebody: true, couple: true, geometry: false, variants: 4 },
+    syncers: [],
   };
 
   // ================================================================ Palette
@@ -241,7 +245,7 @@
     ed.doc = JSON.parse(ed.fut.pop());
     refreshAll();
   }
-  function refreshAll() { validateSel(); persist(); redraw(); buildProps(); }
+  function refreshAll() { validateSel(); persist(); redraw(); buildProps(); if (ed.mode === 'solve') buildSolvePanel(); }
   function persist() { try { localStorage.setItem(STORE, snapshot()); } catch (e) { /* ignorieren */ } }
   function validateSel() {
     if (!ed.sel) return;
@@ -267,8 +271,16 @@
     const { tx, ty, z } = ed.view;
     gView.setAttribute('transform', `translate(${tx} ${ty}) scale(${z})`);
     gGrid.innerHTML = gridSVG();
-    gDraw.innerHTML = TM.render(ed.doc, { edit: true, sel: ed.sel, z });
+    let html;
+    if (ed.mode === 'solve') {
+      ed.res = TM.solve(ed.doc);
+      const ok = ed.res && ed.res.members;
+      html = TM.render(ed.doc, { edit: true, sel: ed.sel, z, hideSupports: ok && ed.sopt.freebody });
+      if (ok) html += `<g pointer-events="none">${TM.renderSolution(ed.doc, ed.res, ed.sopt)}</g>`;
+    } else html = TM.render(ed.doc, { edit: true, sel: ed.sel, z });
+    gDraw.innerHTML = html;
     drawOverlay();
+    if (ed.mode === 'solve') updateSolveResults();
   }
 
   function gridSVG() {
@@ -307,6 +319,14 @@
     for (const n of doc.nodes) {
       const p = TM.P(n);
       s += `<circle class="nh${n.id === selNode ? ' on' : ''}" cx="${p.x}" cy="${p.y}" r="${4.5 / z}" stroke-width="${1.2 / z}" data-kind="node" data-id="${n.id}"/>`;
+    }
+    if (ed.sel && ed.sel.kind === 'load') {
+      const L = M.get(doc, 'load', ed.sel.id);
+      if (L && L.type === 'force') {
+        const fe = TM.forceEnds(doc, L);
+        const h = L.tip !== false ? fe.tail : fe.tip;
+        s += `<circle class="nh" cx="${h.x}" cy="${h.y}" r="${5.5 / z}" stroke-width="${1.4 / z}" data-kind="fhandle" data-id="${L.id}"><title>Ziehen: Richtung und Länge</title></circle>`;
+      }
     }
     const t = ed.tool;
     const txt = (p, str) => `<text class="pvt" x="${p.x + 12 / z}" y="${p.y - 12 / z}" font-size="${12 / z}">${TM.esc(str)}</text>`;
@@ -414,13 +434,13 @@
           break;
         }
         case 'force': {
-          const L = { id: TM.uid('l'), type: 'force', node: resolve(sn), angle: -90, len: 55, tip: true, label: nextLabel('F'), angRef: 'none', angLabel: 'α' };
+          const L = { id: TM.uid('l'), type: 'force', node: resolve(sn), angle: -90, value: 10, len: 55, tip: true, label: nextLabel('F'), angRef: 'none', angLabel: 'α' };
           doc.loads.push(L);
           out = { kind: 'load', id: L.id };
           break;
         }
         case 'moment': {
-          const L = { id: TM.uid('l'), type: 'moment', node: resolve(sn), ccw: true, r: 20, gap: -90, label: nextLabel('M_0') };
+          const L = { id: TM.uid('l'), type: 'moment', node: resolve(sn), value: 10, ccw: true, r: 20, gap: -90, label: nextLabel('M_0') };
           doc.loads.push(L);
           out = { kind: 'load', id: L.id };
           break;
@@ -430,7 +450,7 @@
           if (sn.kind === 'el') el = M.el(doc, sn.el);
           if (!el) { const h = M.elementAt(doc, p, tolW(25)); el = h && h.el; }
           if (!el) { err = 'Streckenlast bitte auf einen Balken ziehen.'; return; }
-          const L = { id: TM.uid('l'), type: 'lineload', el: el.id, qa: item === 'qtri' ? 0 : 1, qb: 1, h: 28, side: 1, dir: 'perp', label: 'q_0' };
+          const L = { id: TM.uid('l'), type: 'lineload', el: el.id, value: 5, qa: item === 'qtri' ? 0 : 1, qb: 1, h: 28, side: 1, dir: 'perp', label: 'q_0' };
           doc.loads.push(L);
           out = { kind: 'load', id: L.id };
           break;
@@ -495,9 +515,12 @@
   function selectDown(e, p) {
     const hit = e.target.closest && e.target.closest('[data-kind]');
     if (!hit) { if (ed.sel) setSel(null); return startPan(e); }
-    const kind = hit.dataset.kind, id = hit.dataset.id;
+    let kind = hit.dataset.kind;
+    const id = hit.dataset.id;
     const before = snapshot();
-    setSel({ kind, id });
+    const rotHandle = kind === 'fhandle';
+    if (rotHandle) kind = 'load';
+    if (!(ed.sel && ed.sel.kind === kind && ed.sel.id === id)) setSel({ kind, id });
     const doc = ed.doc;
     const base = { before, start: p, moved: false };
     if (kind === 'node' || kind === 'support') {
@@ -509,7 +532,9 @@
       const orig = new Map(ids.map((i) => { const n = M.node(doc, i); return [i, { x: n.x, y: n.y }]; }));
       ed.drag = { ...base, type: 'elmove', ids, orig, anchor: el.n1 };
     } else if (kind === 'load') {
-      ed.drag = { ...base, type: 'load', id };
+      const L = M.get(doc, 'load', id);
+      if (L.type === 'force' && !rotHandle && !e.shiftKey && M.lineNode(doc, L.node)) ed.drag = { ...base, type: 'node', id: L.node, slideOnly: true };
+      else ed.drag = { ...base, type: 'load', id };
     } else if (kind === 'dim') {
       ed.drag = { ...base, type: 'dim', id };
     } else if (kind === 'text') {
@@ -658,6 +683,18 @@
     switch (d.type) {
       case 'node': {
         const n = M.node(doc, d.id);
+        const ln = !e.ctrlKey && M.lineNode(doc, n.id);
+        if (ln) {
+          const L = V.dist(ln.a, ln.b), u = V.norm(V.sub(ln.b, ln.a));
+          let sp = V.dot(V.sub(p, ln.a), u);
+          if (snapOn(e)) sp = Math.round(sp / step()) * step();
+          const lo = snapOn(e) ? Math.min(step(), L / 2) : L * 0.01;
+          sp = Math.max(lo, Math.min(L - lo, sp));
+          n.x = TM.clean(ln.a.x + u.x * sp); n.y = TM.clean(ln.a.y + u.y * sp);
+          d.target = null;
+          break;
+        }
+        if (d.slideOnly) break;
         const els = M.elementsAt(doc, n.id);
         const ex = [n.id, ...els.map((x) => M.other(x, n.id))];
         const sn = snap(p, { exNodes: ex, exEls: els.map((x) => x.id), e });
@@ -900,7 +937,7 @@
     if (M.elementsAt(ed.doc, n.id).length === 2)
       btns.push(['Knoten auflösen', () => { let err; mutate(() => { err = M.dissolveNode(ed.doc, n.id); }); if (err) toast(err); else setSel(null); }]);
     if (!sup) btns.push(['Festlager hier', () => addSupportAt(n.id, 'fest')]);
-    btns.push(['Kraft hier', () => { const L = { id: TM.uid('l'), type: 'force', node: n.id, angle: -90, len: 55, tip: true, label: nextLabel('F'), angRef: 'none', angLabel: 'α' }; mutate(() => ed.doc.loads.push(L)); setSel({ kind: 'load', id: L.id }); }]);
+    btns.push(['Kraft hier', () => { const L = { id: TM.uid('l'), type: 'force', node: n.id, angle: -90, value: 10, len: 55, tip: true, label: nextLabel('F'), angRef: 'none', angLabel: 'α' }; mutate(() => ed.doc.loads.push(L)); setSel({ kind: 'load', id: L.id }); }]);
     ui.buttons(btns);
   }
 
@@ -918,6 +955,10 @@
     const obj = s && M.get(doc, s.kind, s.id);
     const title = $('#props-title');
     const del = () => ui.buttons([['Löschen', deleteSel, 'danger']]);
+    if (ed.mode === 'solve') {
+      const key = TM.quantities(doc).map((q) => q.kind + q.obj.id).join();
+      if (key !== ed.solveKey) { ed.solveKey = key; buildSolvePanel(); }
+    }
     if (!obj) { title.textContent = 'Aufgabe'; return docProps(ui); }
 
     if (s.kind === 'node') {
@@ -940,7 +981,7 @@
       ui.buttons([
         ['Länge bemaßen', () => addDimFor(e)],
         ['In der Mitte teilen', () => { let nid; mutate(() => { nid = M.splitElement(doc, e, 0.5).id; }); setSel({ kind: 'node', id: nid }); }],
-        ['Streckenlast', () => { const L = { id: TM.uid('l'), type: 'lineload', el: e.id, qa: 1, qb: 1, h: 28, side: 1, dir: 'perp', label: 'q_0' }; mutate(() => doc.loads.push(L)); setSel({ kind: 'load', id: L.id }); }],
+        ['Streckenlast', () => { const L = { id: TM.uid('l'), type: 'lineload', el: e.id, value: 5, qa: 1, qb: 1, h: 28, side: 1, dir: 'perp', label: 'q_0' }; mutate(() => doc.loads.push(L)); setSel({ kind: 'load', id: L.id }); }],
         ['Richtung umkehren', () => mutate(() => { [e.n1, e.n2] = [e.n2, e.n1]; for (const l of doc.loads) if (l.el === e.id) [l.qa, l.qb] = [l.qb, l.qa]; })],
       ]);
       del();
@@ -968,6 +1009,7 @@
       if (L.type === 'force') {
         title.textContent = 'Einzelkraft';
         ui.text('Bezeichnung', () => L.label, (v) => (L.label = v), { ph: 'F, F_1, 2F …' });
+        ui.num(`Betrag [${TM.units(doc).F}]`, () => L.value, (v) => (L.value = v), { step: 1 });
         ui.num('Wirkrichtung [°]', () => L.angle, (v) => (L.angle = v), { step: 15 });
         ui.buttons([['↓', () => mutate(() => (L.angle = -90))], ['↑', () => mutate(() => (L.angle = 90))], ['→', () => mutate(() => (L.angle = 0))], ['←', () => mutate(() => (L.angle = 180))]]);
         ui.num('Pfeillänge [px]', () => L.len, (v) => (L.len = Math.max(15, v)), { step: 5 });
@@ -975,16 +1017,18 @@
         ui.section('Winkelangabe');
         ui.select('Bezug', () => L.angRef || 'none', (v) => (L.angRef = v), [['none', 'keine'], ['h', 'zur Horizontalen'], ['v', 'zur Vertikalen']]);
         ui.text('Winkel-Bez.', () => L.angLabel, (v) => (L.angLabel = v), { ph: 'α' });
-        ui.note('Pfeil ziehen = drehen (15°-Raster, <kbd>Alt</kbd> frei) und Länge ändern.');
+        ui.note('Pfeil ziehen = Angriffspunkt entlang des Balkens verschieben. Runder Griff am Pfeilende = Richtung/Länge (15°-Raster, <kbd>Alt</kbd> frei). <kbd>Shift</kbd>+Ziehen am Pfeil dreht ebenfalls.');
       } else if (L.type === 'moment') {
         title.textContent = 'Moment';
         ui.text('Bezeichnung', () => L.label, (v) => (L.label = v), { ph: 'M_0' });
+        ui.num(`Betrag [${TM.units(doc).M}]`, () => L.value, (v) => (L.value = v), { step: 1 });
         ui.select('Drehsinn', () => (L.ccw !== false ? '1' : '0'), (v) => (L.ccw = v === '1'), [['1', 'gegen den Uhrzeigersinn ↺'], ['0', 'im Uhrzeigersinn ↻']]);
         ui.num('Radius [px]', () => L.r, (v) => (L.r = Math.max(8, v)), { step: 2 });
         ui.num('Öffnung [°]', () => L.gap, (v) => (L.gap = v), { step: 45 });
       } else {
         title.textContent = 'Streckenlast';
         ui.text('Bezeichnung', () => L.label, (v) => (L.label = v), { ph: 'q_0' });
+        ui.num(`Größtwert [${TM.units(doc).q}]`, () => L.value, (v) => (L.value = v), { step: 0.5 });
         const shape = Math.abs(L.qa - L.qb) < 1e-9 ? 'const' : L.qa === 0 && L.qb > 0 ? 'up' : L.qb === 0 && L.qa > 0 ? 'down' : 'trap';
         ui.select('Verlauf', () => shape, (v) => {
           if (v === 'const') { L.qa = 1; L.qb = 1; } else if (v === 'up') { L.qa = 0; L.qb = 1; }
@@ -1062,7 +1106,9 @@
     ui.text('Titel', () => m.title, (v) => (m.title = v), { ph: 'z. B. Aufgabe 1' });
     ui.text('Aufgabentext', () => m.text, (v) => (m.text = v), { area: true, ph: 'Gegeben: …\nGesucht: …' });
     ui.section('Darstellung');
-    ui.text('Einheit', () => m.unit, (v) => (m.unit = v), { ph: 'z. B. m (für Zahlenmaße)' });
+    ui.text('Längeneinheit', () => m.unit, (v) => (m.unit = v), { ph: 'm' });
+    ui.text('Krafteinheit', () => m.funit, (v) => (m.funit = v), { ph: 'kN' });
+    ui.check('Zahlenwerte statt Bezeichnungen', () => m.showValues, (v) => (m.showValues = v));
     ui.select('Balken', () => m.beamStyle, (v) => (m.beamStyle = v), [['outline', 'Kontur (Lehrbuch)'], ['solid', 'Linie, gefüllt']]);
     ui.num('Rasterweite', () => m.grid, (v) => { if (v > 0) m.grid = v; }, { step: 0.25 });
     ui.check('Raster anzeigen', () => m.showGrid !== false, (v) => (m.showGrid = v));
@@ -1145,8 +1191,15 @@
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   }
 
-  function exportSVGString() {
-    const content = TM.render(ed.doc, { edit: false });
+  /** o.solution: Freikörperbild + Schnittgrößen (alle, untereinander). */
+  function exportSVGString(doc = ed.doc, o = {}) {
+    let content;
+    if (o.solution) {
+      const res = o.res || TM.solve(doc);
+      const ok = res && res.members;
+      content = TM.render(doc, { edit: false, hideSupports: ok }) +
+        (ok ? TM.renderSolution(doc, res, { show: { N: true, Q: true, M: true }, layout: 'stack', scale: ed.sopt.scale, freebody: true }) : '');
+    } else content = TM.render(doc, { edit: false });
     const tmp = document.createElementNS(NS, 'svg');
     tmp.setAttribute('style', 'position:absolute;left:-10000px;top:0;width:10px;height:10px');
     document.body.appendChild(tmp);
@@ -1181,26 +1234,62 @@
     img.src = url;
   }
 
-  function richHTML(s) {
-    return TM.parseRich(s).map((g) => {
+
+  const richHTML = (TM.richHTML = (s) =>
+    TM.parseRich(s).map((g) => {
       const t = TM.esc(g.t);
       return g.m === 1 ? `<sub>${t}</sub>` : g.m === -1 ? `<sup>${t}</sup>` : t;
-    }).join('');
+    }).join(''));
+
+  function givenHTML(doc) {
+    const list = TM.givenList(doc);
+    if (!list.length) return '';
+    return `<p class="given"><b>Zahlenwerte:</b> ${list.map((g) => `<i>${richHTML(g.sym)}</i> = ${TM.fmtNum(g.value)}${g.unit === '°' ? '°' : '&nbsp;' + TM.esc(g.unit)}`).join(', &nbsp;')}</p>`;
   }
 
-  function printSheet() {
-    const m = ed.doc.meta;
-    const fig = ed.doc.nodes.length || ed.doc.texts.length ? exportSVGString().svg : '';
+  function taskHTML(doc, sub) {
+    const m = doc.meta;
+    const fig = doc.nodes.length || doc.texts.length ? exportSVGString(doc).svg : '';
     const text = (m.text || '').split('\n').map((l) => richHTML(l)).join('<br>');
+    return `<section>${m.title || sub ? `<h1>${TM.esc(m.title || 'Aufgabe')}${sub ? ` <small>${TM.esc(sub)}</small>` : ''}</h1>` : ''}
+      <div class="fig">${fig}</div><div>${text}</div>${givenHTML(doc)}</section>`;
+  }
+
+  function solutionPageHTML(doc, sub) {
+    const res = TM.solve(doc);
+    const fig = exportSVGString(doc, { solution: true, res }).svg;
+    return `<section class="sol"><h1>Lösung${doc.meta.title ? ': ' + TM.esc(doc.meta.title) : ''}${sub ? ` <small>${TM.esc(sub)}</small>` : ''}</h1>
+      ${givenHTML(doc)}${solutionHTML(doc, res, true)}<div class="fig">${fig}</div></section>`;
+  }
+
+  function openPrint(title, body) {
     const w = window.open('', '_blank');
     if (!w) return toast('Pop-up wurde blockiert.');
-    w.document.write(`<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>${TM.esc(m.title || 'Aufgabe')}</title>
+    w.document.write(`<!DOCTYPE html><html lang="de"><head><meta charset="utf-8"><title>${TM.esc(title)}</title>
       <style>body{font-family:"Times New Roman",serif;max-width:17cm;margin:1.5cm auto;color:#111;font-size:12pt;line-height:1.45}
-      h1{font-size:15pt;margin:0 0 12px}.fig{text-align:center;margin:12px 0 18px}.fig svg{max-width:100%;height:auto}
-      @media print{body{margin:0 auto}}</style></head>
-      <body>${m.title ? `<h1>${TM.esc(m.title)}</h1>` : ''}<div class="fig">${fig}</div><div>${text}</div>
-      <script>window.onload=()=>setTimeout(()=>window.print(),200)<\/script></body></html>`);
+      h1{font-size:15pt;margin:0 0 12px}h1 small{font-weight:normal;color:#555;font-size:11pt}
+      .fig{text-align:center;margin:12px 0 18px}.fig svg{max-width:100%;height:auto}
+      section+section{break-before:page;page-break-before:always;margin-top:2cm}
+      table.res{border-collapse:collapse;margin:6px 0 10px;font-size:11pt}table.res td{padding:2px 10px 2px 0;border-bottom:1px solid #ddd}
+      table.res td.v{text-align:right}td.h{color:#555;font-size:10pt}.badge{font-weight:bold;margin:6px 0}.warnl{color:#a50e0e}
+      h4{margin:12px 0 4px;font-size:12pt}.given{margin-top:10px}
+      @media print{body{margin:0 auto}section+section{margin-top:0}}</style></head>
+      <body>${body}<script>window.onload=()=>setTimeout(()=>window.print(),250)<\/script></body></html>`);
     w.document.close();
+  }
+
+  function printSheet(withSolution) {
+    let body = taskHTML(ed.doc);
+    if (withSolution) body += solutionPageHTML(ed.doc);
+    openPrint(ed.doc.meta.title || 'Aufgabe', body);
+  }
+
+  function printVariants() {
+    const n = Math.max(1, Math.min(30, ed.sopt.variants | 0));
+    const docs = [];
+    for (let i = 0; i < n; i++) docs.push(TM.randomize(JSON.parse(snapshot()), { geometry: ed.sopt.geometry }));
+    const body = docs.map((d, i) => taskHTML(d, `Variante ${i + 1}`)).join('') + docs.map((d, i) => solutionPageHTML(d, `Variante ${i + 1}`)).join('');
+    openPrint((ed.doc.meta.title || 'Aufgabe') + ' – Varianten', body);
   }
 
   function saveJSON() {
@@ -1234,7 +1323,8 @@
       case 'save': saveJSON(); break;
       case 'svg': exportSVG(); break;
       case 'png': exportPNG(); break;
-      case 'print': printSheet(); break;
+      case 'print': printSheet(ed.mode === 'solve'); break;
+      case 'solve': setMode('solve'); break;
       case 'undo': undo(); break;
       case 'redo': redo(); break;
       case 'fit': fitView(); break;
@@ -1249,6 +1339,245 @@
     loadDoc(TM.examples[+k]());
     commit(before);
   });
+
+  // ================================================================ Lösung
+  function setMode(mode) {
+    ed.mode = mode;
+    document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === mode));
+    $('#pane-edit').hidden = mode !== 'edit';
+    $('#pane-solve').hidden = mode !== 'solve';
+    if (mode === 'solve') buildSolvePanel();
+    redraw();
+    if (mode === 'solve') requestAnimationFrame(fitView);
+  }
+  document.querySelectorAll('#tabs button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.tab)));
+
+  const fmtV = (v) => TM.fmtNum(v, 2);
+  const rh = (s) => richHTML(s);
+
+  /** HTML der Ergebnisse (Panel und Druck). */
+  function solutionHTML(doc, res, print) {
+    const u = TM.units(doc);
+    if (!res || res.empty) return '<div class="badge warn">Noch kein Tragwerk vorhanden.</div>';
+    const st = res.status, cnt = st.count;
+    let h = '';
+    if (st.determinate) h += '<div class="badge ok">✓ statisch bestimmt</div>';
+    else {
+      const parts = [];
+      if (st.kinematic) parts.push(`kinematisch verschieblich (${st.mobility} Freiheitsgrad${st.mobility > 1 ? 'e' : ''})`);
+      if (st.indeterminate) parts.push(`${st.degree}-fach statisch unbestimmt`);
+      h += `<div class="badge bad">✗ ${parts.join(' und ')}</div>`;
+    }
+    h += `<div class="note">Abzählkriterium: <i>a</i> = ${cnt.a}, <i>z</i> = ${cnt.z}, <i>p</i> = ${cnt.p} ⇒ <i>n</i> = <i>a</i> + <i>z</i> − 3<i>p</i> = ${cnt.n}`;
+    const fsys = st.f;
+    if (cnt.n !== fsys) h += `<br>Gleichungssystem: ${st.u} Unbekannte, ${st.g} Gleichungen (enthält ${fsys - cnt.n > 0 ? 'innere Unbestimmtheit geschlossener Rahmen' : 'Sonderfälle'})`;
+    if (!st.determinate && cnt.n === 0) h += '<br>Das Abzählkriterium ist erfüllt, aber die Anordnung ist <b>Ausnahmefall</b> (z. B. Lagerkräfte schneiden sich in einem Punkt oder sind parallel).';
+    if (st.kinematic && !st.indeterminate && cnt.n > 0) h += '<br>Teilweise verschieblich trotz n > 0.';
+    h += `<br>Rang ${st.rank} · ${st.u} Unbekannte · ${st.g} Gleichungen</div>`;
+    for (const w of [...new Set(res.warnings)]) h += `<div class="warnl">⚠ ${TM.esc(w)}</div>`;
+    if (!st.determinate) {
+      if (!print) h += '<div class="note">Für Lagerreaktionen und Schnittgrößen muss das System statisch bestimmt sein.</div>';
+      return h;
+    }
+    const row = (name, v, unit, hint = '') => `<tr><td>${rh(name)}</td><td class="v">${fmtV(v)} ${TM.esc(unit)}</td><td class="h">${hint}</td></tr>`;
+    h += '<h4>Lagerreaktionen</h4><table class="res">';
+    for (const r of res.reactions) for (const cp of r.comps) {
+      const name = TM.reactionName(doc, r.s, cp);
+      if (cp.m) h += row(name, cp.v, u.M, '↺ positiv');
+      else if (cp.c === 'x') h += row(name, cp.v, u.F, '→ positiv');
+      else if (cp.c === 'y') h += row(name, cp.v, u.F, '↑ positiv');
+      else {
+        const arrow = { '0': '→', '90': '↑', '180': '←', '-180': '←', '-90': '↓' }[String(Math.round(V.ang(cp.f)))];
+        h += row(name, cp.v, u.F, arrow ? `${arrow} positiv` : `positiv in ${TM.fmtNum(V.ang(cp.f), 0)}°`);
+      }
+    }
+    h += '</table>';
+    const twoForce = res.members.filter((m) => m.e.type !== 'beam');
+    if (twoForce.length) {
+      h += '<h4>Stab- und Seilkräfte</h4><table class="res">';
+      for (const m of twoForce) h += row(m.e.label ? `S_{${m.e.label}}` : `S (${TM.memberName(doc, m.e)})`, m.N[0], u.F, m.N[0] > 1e-9 ? 'Zug' : m.N[0] < -1e-9 ? 'Druck' : 'Nullstab');
+      h += '</table>';
+    }
+    const hinges = doc.nodes.filter((n) => n.hinge && M.elementsAt(doc, n.id).filter((e) => e.type === 'beam').length >= 2);
+    if (hinges.length) {
+      h += '<h4>Gelenkkräfte</h4><table class="res">';
+      for (const n of hinges) {
+        const els = M.elementsAt(doc, n.id).filter((e) => e.type === 'beam');
+        const mid = (e) => (M.node(doc, e.n1).x + M.node(doc, e.n2).x) / 2;
+        const e = els.sort((a, b) => mid(a) - mid(b))[0];
+        const mm = res.members.find((m) => m.e === e);
+        const f = e.n1 === n.id ? mm.f1 : mm.f2;
+        const name = n.label || 'G';
+        h += row(`${name}_{H}`, f.x, u.F, '→ auf linken Teil') + row(`${name}_{V}`, f.y, u.F, '↑ auf linken Teil');
+      }
+      h += '</table>';
+    }
+    const beams = res.members.filter((m) => m.e.type === 'beam');
+    if (beams.length) {
+      h += '<h4>Extremwerte</h4><table class="res">';
+      for (const t of ['N', 'Q', 'M']) {
+        let best = null;
+        for (const m of beams) m[t].forEach((v, i) => { if (!best || Math.abs(v) > Math.abs(best.v) + 1e-9) best = { v, m, x: m.xs[i] }; });
+        if (!best) continue;
+        h += row(`${t === 'M' ? 'M' : t}_{max}`, best.v, t === 'M' ? u.M : u.F, `${TM.esc(TM.memberName(doc, best.m.e))}, x = ${TM.fmtNum(best.x)} ${TM.esc(u.L)}`);
+      }
+      h += '</table>';
+      h += '<div class="note">Vorzeichen: N &gt; 0 Zug; Q, M bezogen auf die gestrichelte Faser (rechts der Elementrichtung Knoten 1 → 2). M wird auf der Zugseite aufgetragen.</div>';
+    }
+    return h;
+  }
+
+  function updateSolveResults() {
+    const box = $('#solres');
+    if (box) box.innerHTML = solutionHTML(ed.doc, ed.res);
+    for (const f of ed.syncers) f();
+  }
+
+  function buildSolvePanel() {
+    const pane = $('#pane-solve');
+    pane.innerHTML = '';
+    ed.syncers = [];
+    ed.solveKey = TM.quantities(ed.doc).map((q) => q.kind + q.obj.id).join();
+    const ui = propsUI(pane);
+    const o = ed.sopt;
+    const doc = ed.doc;
+    const res = document.createElement('div');
+    res.id = 'solres';
+    pane.appendChild(res);
+
+    ui.section('Darstellung');
+    const chips = document.createElement('div');
+    chips.className = 'chips';
+    for (const t of ['N', 'Q', 'M']) {
+      const l = document.createElement('label');
+      l.style.color = TM.DIAG_COLORS[t];
+      const i = document.createElement('input');
+      i.type = 'checkbox';
+      i.checked = o.show[t];
+      i.addEventListener('change', () => { o.show[t] = i.checked; redraw(); });
+      l.append(i, document.createTextNode(t));
+      chips.appendChild(l);
+    }
+    pane.appendChild(chips);
+    const lay = document.createElement('select');
+    lay.innerHTML = '<option value="stack">untereinander</option><option value="overlay">am Tragwerk</option>';
+    lay.value = o.layout;
+    lay.addEventListener('change', () => { o.layout = lay.value; redraw(); fitView(); });
+    const lr = document.createElement('label');
+    lr.className = 'row';
+    lr.innerHTML = '<span>Anordnung</span>';
+    lr.appendChild(lay);
+    pane.appendChild(lr);
+    const rng = document.createElement('input');
+    rng.type = 'range'; rng.min = '0.3'; rng.max = '3'; rng.step = '0.1'; rng.value = o.scale;
+    rng.addEventListener('input', () => { o.scale = +rng.value; redraw(); });
+    const r = document.createElement('label');
+    r.className = 'row';
+    r.innerHTML = '<span>Skalierung</span>';
+    r.appendChild(rng);
+    pane.appendChild(r);
+    ui.check('Freikörperbild (Lagerreaktionen)', () => o.freebody, (v) => (o.freebody = v), { noUndo: true });
+
+    ui.section('Werte verändern');
+    ui.note('Änderungen wirken sofort auf die Lösung. Kräfte lassen sich auf der Zeichenfläche entlang des Balkens ziehen, Knoten verschieben.');
+    ui.check('Gleiche Grundgröße koppeln (F, 2F …)', () => o.couple, (v) => (o.couple = v), { noUndo: true });
+    for (const q of TM.quantities(doc)) paramRow(pane, q);
+    followCheck(ui);
+
+    ui.section('Varianten');
+    ui.check('Auch Längen und Winkel variieren', () => o.geometry, (v) => (o.geometry = v), { noUndo: true });
+    ui.buttons([['🎲 Neue Zufallswerte', () => { mutate(() => TM.randomize(ed.doc, { geometry: o.geometry }), { props: false }); buildSolvePanel(); redraw(); }]]);
+    ui.num('Anzahl Varianten', () => o.variants, (v) => (o.variants = v), { step: 1 });
+    ui.section('Drucken / PDF');
+    ui.buttons([
+      ['Aufgabe', () => printSheet(false)],
+      ['Aufgabe + Lösung', () => printSheet(true)],
+      ['Variantenserie', () => printVariants()],
+    ]);
+    ui.note('Die Variantenserie enthält je Variante ein Aufgabenblatt und im Anhang die Lösungen.');
+    updateSolveResults();
+  }
+
+  function paramRow(pane, q) {
+    const doc = ed.doc;
+    const r = document.createElement('label');
+    r.className = 'row param';
+    const sp = document.createElement('span');
+    sp.innerHTML = q.label ? rh(q.label) : { load: 'Last', dim: 'Maß', angle: 'Winkel', fangle: 'Winkel' }[q.kind];
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;gap:4px;align-items:center';
+    const i = document.createElement('input');
+    i.type = 'number';
+    i.step = q.kind === 'load' ? '1' : q.kind === 'dim' ? String(step()) : '5';
+    const un = document.createElement('span');
+    un.textContent = q.unit;
+    un.style.cssText = 'color:var(--muted);font-size:12px;min-width:34px';
+    wrap.append(i, un);
+    r.append(sp, wrap);
+    pane.appendChild(r);
+    const cur = () => {
+      const all = TM.quantities(ed.doc);
+      const m = all.find((x) => x.obj.id === q.obj.id && x.kind === q.kind);
+      return m ? m.value : NaN;
+    };
+    const show = () => { if (document.activeElement !== i) i.value = Math.round(cur() * 1000) / 1000; };
+    show();
+    ed.syncers.push(show);
+    const parse = () => parseFloat(String(i.value).replace(',', '.'));
+    if (q.kind === 'load') {
+      let before = null;
+      i.addEventListener('focus', () => { before = snapshot(); });
+      i.addEventListener('input', () => {
+        const v = parse();
+        if (!isFinite(v)) return;
+        if (before === null) before = snapshot();
+        setLoadValue(q.obj.id, v);
+        redraw();
+      });
+      i.addEventListener('change', () => { if (before !== null) commit(before); before = snapshot(); });
+    } else {
+      i.addEventListener('change', () => {
+        const v = parse();
+        if (!isFinite(v) || v <= 0) return;
+        mutate(() => applyGeomValue(q, v), { props: false });
+      });
+    }
+  }
+
+  function setLoadValue(id, v) {
+    const doc = ed.doc, L = M.get(doc, 'load', id);
+    if (!L) return;
+    L.value = v;
+    const p = TM.parseSym(L.label);
+    if (!ed.sopt.couple || !p) return;
+    const base = v / p.coef;
+    for (const o of doc.loads) {
+      if (o === L) continue;
+      const q = TM.parseSym(o.label);
+      if (q && q.sym === p.sym && o.type === L.type) o.value = TM.clean(base * q.coef);
+    }
+  }
+
+  function applyGeomValue(q, v) {
+    const doc = ed.doc, d = M.get(doc, q.kind === 'fangle' ? 'load' : 'dim', q.obj.id);
+    if (!d) return;
+    if (q.kind === 'dim') {
+      const A = M.node(doc, d.a), B = M.node(doc, d.b);
+      let u;
+      if (d.type === 'h') u = { x: Math.sign(B.x - A.x) || 1, y: 0 };
+      else if (d.type === 'v') u = { x: 0, y: Math.sign(B.y - A.y) || 1 };
+      else u = V.norm(V.sub(B, A));
+      M.setDistance(doc, A.id, B.id, u, v, ed.follow);
+    } else if (q.kind === 'angle') {
+      const g = TM.angleGeom(d, M.node(doc, d.v), d.a ? M.node(doc, d.a) : null, M.node(doc, d.b));
+      M.rotateAbout(doc, d.v, d.b, (Math.sign(g.sweep) || 1) * v - g.sweep, ed.follow, d.a);
+    } else if (q.kind === 'fangle') {
+      const dd = V.dir(d.angle);
+      const sx = Math.sign(dd.x) || 1, sy = Math.sign(dd.y) || -1;
+      const h = d.angRef === 'v' ? 90 - v : v;
+      d.angle = (Math.atan2(sy * Math.sin((h * Math.PI) / 180), sx * Math.cos((h * Math.PI) / 180)) * 180) / Math.PI;
+    }
+  }
 
   // ================================================================ Start
   buildPalette();

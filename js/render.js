@@ -75,6 +75,7 @@
           it ? ' font-style="italic"' : ''}>${esc(r)}</tspan>`;
       });
     }
+    if (o.suffix) inner += `<tspan${shift ? ` dy="${c(-shift)}"` : ''}>${esc(o.suffix)}</tspan>`;
     const rot = o.rot ? ` transform="rotate(${c(o.rot)} ${c(x)} ${c(y)})"` : '';
     return `<text x="${c(x)}" y="${c(y)}" font-family="${STY.font}" font-size="${c(size)}" text-anchor="${anchor}" dominant-baseline="central" fill="${o.fill || ink}"${rot}${o.attrs || ''}>${inner}</text>`;
   }
@@ -152,6 +153,21 @@
   };
 
   // ---------------------------------------------------------------- Lasten
+  /** Endpunkte (Zeichenkoordinaten) einer Einzelkraft. */
+  TM.forceEnds = function (doc, L) {
+    const n = doc.nodes.find((k) => k.id === L.node);
+    const els = doc.elements.filter((e) => e.n1 === n.id || e.n2 === n.id);
+    const bw = doc.meta.beamStyle === 'solid' ? STY.solid : STY.bw;
+    const s = doc.supports.find((x) => x.node === n.id);
+    const ctx = {
+      bw, beamAt: new Set(els.some((e) => e.type === 'beam') ? [n.id] : []),
+      pinAt: new Set(n.hinge || els.some((e) => e.type === 'rod') || (s && s.type !== 'clamp' && s.type !== 'schiebe') ? [n.id] : []),
+      lab: () => ({ t: '' }),
+    };
+    const r = forceSVG(L, n, ctx);
+    return { tail: r.tail, tip: r.tip };
+  };
+
   function forceSVG(L, n, ctx) {
     const p = P(n);
     const d = sd(V.dir(L.angle));
@@ -162,11 +178,12 @@
     if (tipMode) { tip = V.sub(p, V.mul(d, trim)); tail = V.sub(tip, V.mul(d, len)); }
     else { tail = V.add(p, V.mul(d, trim)); tip = V.add(tail, V.mul(d, len)); }
     let s = arrow(tail, tip, { w: 2.2, hl: 12, hw: 4.5 });
-    if (L.label) {
+    const lab = ctx.lab(L);
+    if (lab.t) {
       const end = tipMode ? tail : tip, out = tipMode ? V.mul(d, -1) : d;
-      const w = TM.textWidth(L.label);
+      const w = TM.textWidth(lab.t);
       const dist = 7 + Math.abs(out.x) * w / 2 + Math.abs(out.y) * STY.fs * 0.5;
-      s += textSVG(L.label, end.x + out.x * dist, end.y + out.y * dist);
+      s += textSVG(lab.t, end.x + out.x * dist, end.y + out.y * dist, { italic: lab.it });
     }
     if (L.angRef === 'h' || L.angRef === 'v') {
       const center = tipMode ? tip : tail;
@@ -176,7 +193,10 @@
       s += line(center, V.add(center, V.mul(ref, r + 12)), 0.9, ' stroke-dasharray="4 3"');
       s += arcSVG(center, ref, body, r, false) ;
       const mid = V.norm(V.add(ref, body));
-      if (L.angLabel) s += textSVG(L.angLabel, center.x + mid.x * (r + 10), center.y + mid.y * (r + 10), { size: STY.fs * 0.9 });
+      const al = ctx.values ? TM.fmtNum(TM.forceRefAngle(L), 1) + '°' : L.angLabel;
+      const aw = TM.textWidth(al || '', STY.fs * 0.9);
+      const ad = r + 7 + Math.abs(mid.x) * aw / 2 + Math.abs(mid.y) * STY.fs * 0.4;
+      if (al) s += textSVG(al, center.x + mid.x * ad, center.y + mid.y * ad, { size: STY.fs * 0.9 });
     }
     return { svg: s, tail, tip };
   }
@@ -191,7 +211,7 @@
     return `<path d="M${c(p1.x)} ${c(p1.y)}A${c(r)} ${c(r)} 0 ${reflex ? 1 : 0} ${sweep} ${c(p2.x)} ${c(p2.y)}" stroke="${ink}" stroke-width="1" fill="none"/>`;
   }
 
-  function momentSVG(L, n) {
+  function momentSVG(L, n, ctx) {
     const p = P(n), r = L.r || 20, gap = L.gap ?? -90, sg = L.ccw !== false ? 1 : -1;
     const pt = (deg) => ({ x: p.x + r * Math.cos((deg * Math.PI) / 180), y: p.y - r * Math.sin((deg * Math.PI) / 180) });
     const start = gap + 45 * sg, end = gap + 315 * sg;
@@ -205,15 +225,18 @@
                       : { x: Math.sin((end * Math.PI) / 180), y: -Math.cos((end * Math.PI) / 180) };
     const dir = V.norm(V.add(sd(tw), V.mul(V.norm(V.sub(tip, b)), 1)));
     s += head(tip, dir, 10, 4);
-    if (L.label) {
-      const la = gap + 135, w = TM.textWidth(L.label);
+    const lab = ctx ? ctx.lab(L) : { t: L.label, it: true };
+    if (lab.t) {
+      const la = gap + 135, w = TM.textWidth(lab.t);
       const dv = V.dir(la);
       const dist = r + 8 + Math.abs(dv.x) * w / 2 + Math.abs(dv.y) * STY.fs * 0.45;
-      s += textSVG(L.label, p.x + dv.x * dist, p.y - dv.y * dist);
+      s += textSVG(lab.t, p.x + dv.x * dist, p.y - dv.y * dist, { italic: lab.it });
     }
     const hit = `<circle class="hit" cx="${c(p.x)}" cy="${c(p.y)}" r="${r}" fill="none"/>`;
     return { svg: s, hit };
   }
+
+  TM.momentSVG = (L, n, ctx) => momentSVG(L, n, ctx);
 
   function lineloadSVG(L, el, A, B, ctx) {
     const a = P(A), b = P(B);
@@ -239,11 +262,12 @@
       else if (hAt(t) > 0.5) s += line(top(t), base(t), 1);
     }
     s += line(top(0), top(1), 1.2);
-    if (L.label) {
+    const lab = ctx.lab(L);
+    if (lab.t) {
       const tl = Math.abs(qa - qb) < 1e-9 ? 0.5 : Math.abs(qb) > Math.abs(qa) ? 0.88 : 0.12;
-      const q = top(tl), w = TM.textWidth(L.label);
+      const q = top(tl), w = TM.textWidth(lab.t);
       const dist = 6 + Math.abs(ts.x) * w / 2 + Math.abs(ts.y) * STY.fs * 0.5;
-      s += textSVG(L.label, q.x + ts.x * dist, q.y + ts.y * dist);
+      s += textSVG(lab.t, q.x + ts.x * dist, q.y + ts.y * dist, { italic: lab.it });
     }
     const pts = [base(0), base(1), top(1), top(0)].map((q) => `${c(q.x)},${c(q.y)}`).join(' ');
     return { svg: s, hit: `<polygon class="hitr" points="${pts}"/>` };
@@ -286,7 +310,7 @@
       } else {
         s += line(V.sub(d1, V.mul(e, 14)), V.add(d2, V.mul(e, 14)), 0.9) + head(d1, e, 8, 2.6) + head(d2, V.mul(e, -1), 8, 2.6);
       }
-      const txt = d.label || TM.fmtNum(g.val) + (unit ? ' ' + unit : '');
+      const txt = (!o.values && d.label) || TM.fmtNum(g.val) + (unit ? ' ' + unit : '');
       const sg = (d.off || 0) >= 0 ? 1 : -1;
       const ns = V.mul(sd(g.n), sg);
       let ang = (Math.atan2(e.y, e.x) * 180) / Math.PI;
@@ -321,7 +345,7 @@
     const large = Math.abs(g.sweep) > 180 ? 1 : 0, sweepFlag = g.sweep > 0 ? 0 : 1;
     const path = `M${c(p1.x)} ${c(p1.y)}A${r} ${r} 0 ${large} ${sweepFlag} ${c(p2.x)} ${c(p2.y)}`;
     if (g.val > 0.05) s += `<path d="${path}" stroke="${ink}" stroke-width="1" fill="none"/>`;
-    const txt = d.label || TM.fmtNum(g.val, 1) + '°';
+    const txt = (!o.values && d.label) || TM.fmtNum(g.val, 1) + '°';
     const mv = sd(V.dir(V.ang(g.dirA) + g.sweep / 2));
     const w = TM.textWidth(txt, STY.fs * 0.9);
     const dist = r + 7 + Math.abs(mv.x) * w / 2 + Math.abs(mv.y) * STY.fs * 0.45;
@@ -350,7 +374,14 @@
       const s = supAt.get(n.id);
       if (n.hinge || rodAt.has(n.id) || (s && (s.type === 'fest' || s.type === 'los' || s.type === 'gleit'))) pinAt.add(n.id);
     }
-    const ctx = { beamAt, pinAt, bw };
+    const values = !!doc.meta.showValues;
+    const lab = (L) => {
+      if (!values) return { t: L.label, it: true };
+      const u = TM.units(doc);
+      const unit = L.type === 'force' ? u.F : L.type === 'moment' ? u.M : u.q;
+      return { t: `${TM.fmtNum(+L.value || 0)} ${unit}`, it: false };
+    };
+    const ctx = { beamAt, pinAt, bw, values, lab };
     const hw = c(14 / z);
     const isSel = (k, id) => sel && sel.kind === k && sel.id === id;
     const G = (kind, id, inner) =>
@@ -369,7 +400,7 @@
     }
 
     // Lager
-    for (const s of doc.supports) {
+    for (const s of o.hideSupports ? [] : doc.supports) {
       const n = nodes.get(s.node);
       if (!n) continue;
       const p = P(n);
@@ -449,7 +480,7 @@
         const r = forceSVG(L, n, ctx);
         out += G('load', L.id, r.svg + hitLine(r.tail, r.tip));
       } else if (L.type === 'moment') {
-        const r = momentSVG(L, n);
+        const r = momentSVG(L, n, ctx);
         out += G('load', L.id, r.svg + (edit ? r.hit.replace('class="hit"', `class="hit" stroke-width="${hw}"`) : ''));
       }
     }
@@ -458,9 +489,9 @@
     for (const d of doc.dims) {
       if (d.type === 'angle') {
         const Vn = nodes.get(d.v), Bn = nodes.get(d.b), An = d.a ? nodes.get(d.a) : null;
-        out += G('dim', d.id, TM.angleSVG(d, Vn, An, Bn, { edit }));
+        out += G('dim', d.id, TM.angleSVG(d, Vn, An, Bn, { edit, values }));
       } else {
-        out += G('dim', d.id, TM.dimSVG(d, nodes.get(d.a), nodes.get(d.b), doc.meta.unit, { edit }));
+        out += G('dim', d.id, TM.dimSVG(d, nodes.get(d.a), nodes.get(d.b), values ? TM.units(doc).L : doc.meta.unit, { edit, values }));
       }
     }
 

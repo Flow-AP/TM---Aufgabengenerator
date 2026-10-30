@@ -55,7 +55,7 @@ window.TM = window.TM || {};
     loads: [],
     dims: [],
     texts: [],
-    meta: { title: '', text: '', unit: '', beamStyle: 'outline', grid: 0.5, showGrid: true, snap: true },
+    meta: { title: '', text: '', unit: '', funit: 'kN', showValues: false, beamStyle: 'outline', grid: 0.5, showGrid: true, snap: true },
   });
 
   const M = (TM.model = {});
@@ -257,11 +257,23 @@ window.TM = window.TM || {};
     [d.a, d.b] = [d.b, d.a];
   };
 
+  /** Knoten zwischen zwei gleichartigen, fluchtenden Elementen (ohne Lager) → äußere Knoten. */
+  M.lineNode = (doc, nid) => {
+    const els = M.elementsAt(doc, nid);
+    if (els.length !== 2 || els[0].type !== els[1].type || M.supportAt(doc, nid)) return null;
+    const n = M.node(doc, nid);
+    const a = M.node(doc, M.other(els[0], nid)), b = M.node(doc, M.other(els[1], nid));
+    const va = V.sub(a, n), vb = V.sub(b, n);
+    if (Math.abs(V.cross(V.norm(va), V.norm(vb))) > 1e-6 || V.dot(va, vb) > 0) return null;
+    return { a, b };
+  };
+
   /** Ergänzt fehlende Felder (z. B. bei älteren Dateien). */
   M.normalize = (doc) => {
     const base = TM.newDoc();
     for (const k of Object.keys(base)) if (doc[k] == null) doc[k] = base[k];
     doc.meta = Object.assign(base.meta, doc.meta || {});
+    for (const l of doc.loads) if (l.value == null) l.value = l.type === 'lineload' ? 5 : 10;
     M.cleanup(doc);
     return doc;
   };

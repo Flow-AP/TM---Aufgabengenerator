@@ -127,3 +127,22 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3p
   #side { width: 220px; }
   .row { grid-template-columns: 80px 1fr; }
 }
+
+/* ---------- Lösung */
+#tabs { display: flex; gap: 4px; margin: -2px 0 10px; }
+#tabs button { flex: 1; border-radius: 6px; }
+#tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.badge { padding: 8px 10px; border-radius: 6px; font-weight: 600; margin: 4px 0 6px; }
+.badge.ok { background: #e6f4ea; color: #1e6b34; }
+.badge.bad { background: #fce8e6; color: #a50e0e; }
+.badge.warn { background: #fef7e0; color: #8a5a00; }
+.warnl { color: #a50e0e; font-size: 12.5px; margin: 4px 0; }
+table.res { width: 100%; border-collapse: collapse; font-size: 13px; margin: 4px 0 8px; }
+table.res td { padding: 3px 4px; border-bottom: 1px solid var(--line); }
+table.res td:first-child { font-family: "Times New Roman", serif; font-style: italic; font-size: 14.5px; white-space: nowrap; }
+table.res td.v { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.res td.h { color: var(--muted); font-size: 11.5px; }
+.chips { display: flex; gap: 10px; margin: 4px 0; }
+.chips label { display: flex; gap: 4px; align-items: center; font-weight: 600; }
+.row input[type=range] { width: 100%; }
+.row.param > span { font-family: "Times New Roman", serif; font-style: italic; font-size: 14.5px; color: var(--text); }
