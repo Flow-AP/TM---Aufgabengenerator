@@ -370,7 +370,7 @@
       if (t !== 'N') s += fiber(doc, dy, 3);
       s += diagram(doc, res, t, dy, amp / mx, labels, u);
       const lp = P({ x: minX, y: (minY + maxY) / 2 + dy });
-      s += TM.textSVG(t, lp.x - 40, lp.y, { anchor: 'end', size: 20, fill: COLORS[t], suffix: ` [${t === 'M' ? u.M : u.F}]` }).replace('font-size="20"', 'font-size="20" font-weight="bold"');
+      s += TM.textSVG(t, lp.x - 40, lp.y, { anchor: 'end', size: 20, fill: COLORS[t], suffix: ` in ${t === 'M' ? u.M : u.F}` });
     }
     return s;
   };

@@ -18,7 +18,7 @@ Die aktuelle Aufgabe wird automatisch im Browser (localStorage) zwischengespeich
 | Verbindungen | Gelenk (M = 0), Schiebehülse (N = 0), drehbare Schiebehülse (N = 0, M = 0), Parallelführung / Querkraftgelenk (Q = 0), starre Ecken bei Rahmen |
 | Seil & Masse | Rolle (frei drehbar), feste Trommel mit Seilreibung (Euler-Eytelwein, Grenzfall), Massenblock (G = m·g, hängend oder aufliegend) |
 | Lasten | Einzelkraft (beliebige Richtung, optional mit Winkelangabe α), Moment (beide Drehsinne), Streckenlast (konstant, Dreieck, Trapez; senkrecht oder vertikal wirkend) |
-| Bemaßung | Länge horizontal / vertikal / parallel (Maßzahl immer über der Maßlinie), Winkel zwischen Elementen, Kräften oder zur Horizontalen/Vertikalen |
+| Bemaßung | Länge horizontal / vertikal / parallel (Maßzahl immer über der Maßlinie, ohne Einheit), Winkel mit Pfeilen zwischen Elementen, Kräften oder zur Horizontalen/Vertikalen; je Maß wählbar: Maßzahl, Symbol oder „Symbol = Maßzahl“ |
 | Beschriftung | Knotennamen (A, B, …, auch automatisch), Elementbeschriftung (EI, 1, 2 …), freie Texte, Indizes `F_1`, `q_{0}`, Exponenten `x^2`, griechische Buchstaben `\alpha` |
 | Export | SVG, PNG (3-fache Auflösung), Drucken / PDF mit Titel und Aufgabentext, Speichern/Laden als JSON |
 
@@ -51,7 +51,8 @@ Mit **Durchrechnen** (oder dem Reiter *Lösung*) wird die Aufgabe gelöst:
 
 Einheiten: Länge (mm, cm, m), Kraft (N, kN, MN) und Masse (g, kg, t) sind wählbar. Daraus ergeben sich die Einheiten
 für Momente und Streckenlasten. Beim Wechsel der Kraft- oder Masseneinheit können die Lastwerte umgerechnet werden.
-Die Längeneinheit benennt das Raster (1 Rasterlänge = 1 Längeneinheit). Streckenlasten beziehen sich auf die Elementlänge.
+Die Längeneinheit benennt das Raster (1 Rasterlänge = 1 Längeneinheit). Einheiten werden nie kursiv und als „in kN“
+geschrieben; Maße stehen ohne Einheit im Bild, die Längeneinheit erscheint im Aufgabentext. Streckenlasten beziehen sich auf die Elementlänge.
 
 Vorzeichen: *x* von Knoten 1 nach Knoten 2 des Elements, *z* rechts davon (gestrichelte Faser).
 N > 0 ist Zug. Q und M sind auf die gestrichelte Faser bezogen, M ist auf der Zugseite aufgetragen.

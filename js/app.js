@@ -712,7 +712,7 @@
     }
     let id = null;
     mutate(() => {
-      const d = { id: TM.uid('d'), type: 'angle', label: 'α', r: 30, flip: false, ...dim };
+      const d = { id: TM.uid('d'), type: 'angle', label: 'α', show: 'num', arrows: true, r: 30, flip: false, ...dim };
       ed.doc.dims.push(d);
       id = d.id;
     });
@@ -1021,7 +1021,7 @@
       ['sleevepin', 'Schiebehülse drehbar (N = 0, M = 0)'], ['parallel', 'Parallelführung (Q = 0)'],
     ]);
     if (n.joint) {
-      ui.num('Führung [°]', () => n.jangle || 0, (v) => (n.jangle = v), { step: 15 });
+      ui.num('Führung in °', () => n.jangle || 0, (v) => (n.jangle = v), { step: 15 });
       ui.note('Führungsrichtung der Verbindung (Gleitrichtung). Standard: Richtung des ersten angeschlossenen Elements.');
     }
     if (n.pulley) {
@@ -1053,7 +1053,7 @@
   function unknownField(ui, L) {
     const unit = TM.loadUnit(ed.doc, L);
     ui.check('gesucht (unbekannt)', () => L.unknown, (v) => (L.unknown = v));
-    if (!L.unknown) ui.num(`${L.type === 'mass' ? 'Masse' : 'Betrag'} [${unit}]`, () => L.value, (v) => (L.value = v), { step: 1 });
+    if (!L.unknown) ui.num(`${L.type === 'mass' ? 'Masse' : 'Betrag'} in ${unit}`, () => L.value, (v) => (L.value = v), { step: 1 });
     else ui.note('Der Betrag wird beim Durchrechnen aus dem Gleichgewicht bestimmt (Richtung bleibt fest).');
   }
 
@@ -1087,7 +1087,7 @@
       ui.select('Typ', () => e.type, (v) => (e.type = v), [['beam', 'Balken'], ['rod', 'Stab'], ['rope', 'Seil'], ['spring', 'Feder']]);
       ui.section('Geometrie');
       ui.num('Länge', () => V.dist(A, B), (v) => { if (v > 0) M.setDistance(doc, A.id, B.id, V.norm(V.sub(B, A)), v, ed.follow); }, { geom: true, step: step() });
-      ui.num('Winkel [°]', () => V.ang(V.sub(B, A)), (v) => M.rotateAbout(doc, A.id, B.id, v - V.ang(V.sub(B, A)), ed.follow), { geom: true, step: 15 });
+      ui.num('Winkel in °', () => V.ang(V.sub(B, A)), (v) => M.rotateAbout(doc, A.id, B.id, v - V.ang(V.sub(B, A)), ed.follow), { geom: true, step: 15 });
       followCheck(ui);
       ui.note('Länge/Winkel verändern den Endknoten; angeschlossene Elemente wachsen mit.');
       ui.section('Beschriftung');
@@ -1107,7 +1107,7 @@
       ui.select('Lagerart', () => sp.type, (v) => { sp.type = v; }, [
         ['fest', 'Festlager'], ['los', 'Loslager'], ['gleit', 'Loslager (Rollen)'], ['clamp', 'Einspannung'], ['schiebe', 'Parallelführung'],
       ]);
-      ui.num('Richtung [°]', () => sp.angle ?? -90, (v) => (sp.angle = v), { step: 45 });
+      ui.num('Richtung in °', () => sp.angle ?? -90, (v) => (sp.angle = v), { step: 45 });
       ui.buttons([
         ['⟲ 45°', () => mutate(() => (sp.angle = norm180(sp.angle + 45)))],
         ['⟳ 45°', () => mutate(() => (sp.angle = norm180(sp.angle - 45)))],
@@ -1126,21 +1126,22 @@
         title.textContent = 'Einzelkraft';
         ui.text('Bezeichnung', () => L.label, (v) => (L.label = v), { ph: 'F, F_1, 2F …' });
         unknownField(ui, L);
-        ui.num('Wirkrichtung [°]', () => L.angle, (v) => (L.angle = v), { step: 15 });
+        ui.num('Wirkrichtung in °', () => L.angle, (v) => (L.angle = v), { step: 15 });
         ui.buttons([['↓', () => mutate(() => (L.angle = -90))], ['↑', () => mutate(() => (L.angle = 90))], ['→', () => mutate(() => (L.angle = 0))], ['←', () => mutate(() => (L.angle = 180))]]);
-        ui.num('Pfeillänge [px]', () => L.len, (v) => (L.len = Math.max(15, v)), { step: 5 });
+        ui.num('Pfeillänge in px', () => L.len, (v) => (L.len = Math.max(15, v)), { step: 5 });
         ui.select('Angriff', () => (L.tip !== false ? '1' : '0'), (v) => (L.tip = v === '1'), [['1', 'Pfeilspitze am Punkt'], ['0', 'Pfeilende am Punkt']]);
         ui.section('Winkelangabe');
         ui.select('Bezug', () => L.angRef || 'none', (v) => (L.angRef = v), [['none', 'keine'], ['h', 'zur Horizontalen'], ['v', 'zur Vertikalen']]);
-        ui.text('Winkel-Bez.', () => L.angLabel, (v) => (L.angLabel = v), { ph: 'α' });
+        ui.text('Winkel-Symbol', () => L.angLabel, (v) => (L.angLabel = v), { ph: 'α' });
+        ui.select('Anzeige', () => TM.dimShow({ label: L.angLabel, show: L.angShow }), (v) => (L.angShow = v), [['num', 'Maßzahl'], ['sym', 'Symbol'], ['both', 'Symbol = Maßzahl']]);
         ui.note('Pfeil ziehen = Angriffspunkt entlang des Balkens verschieben. Runder Griff am Pfeilende = Richtung/Länge (15°-Raster, <kbd>Alt</kbd> frei). <kbd>Shift</kbd>+Ziehen am Pfeil dreht ebenfalls.');
       } else if (L.type === 'moment') {
         title.textContent = 'Moment';
         ui.text('Bezeichnung', () => L.label, (v) => (L.label = v), { ph: 'M_0' });
         unknownField(ui, L);
         ui.select('Drehsinn', () => (L.ccw !== false ? '1' : '0'), (v) => (L.ccw = v === '1'), [['1', 'gegen den Uhrzeigersinn ↺'], ['0', 'im Uhrzeigersinn ↻']]);
-        ui.num('Radius [px]', () => L.r, (v) => (L.r = Math.max(8, v)), { step: 2 });
-        ui.num('Öffnung [°]', () => L.gap, (v) => (L.gap = v), { step: 45 });
+        ui.num('Radius in px', () => L.r, (v) => (L.r = Math.max(8, v)), { step: 2 });
+        ui.num('Öffnung in °', () => L.gap, (v) => (L.gap = v), { step: 45 });
       } else if (L.type === 'mass') {
         title.textContent = 'Masse';
         ui.text('Bezeichnung', () => L.label, (v) => (L.label = v), { ph: 'm, m_1, 2m …' });
@@ -1152,7 +1153,7 @@
       } else {
         title.textContent = 'Streckenlast';
         ui.text('Bezeichnung', () => L.label, (v) => (L.label = v), { ph: 'q_0' });
-        ui.num(`Größtwert [${TM.units(doc).q}]`, () => L.value, (v) => (L.value = v), { step: 0.5 });
+        ui.num(`Größtwert in ${TM.units(doc).q}`, () => L.value, (v) => (L.value = v), { step: 0.5 });
         const shape = Math.abs(L.qa - L.qb) < 1e-9 ? 'const' : L.qa === 0 && L.qb > 0 ? 'up' : L.qb === 0 && L.qa > 0 ? 'down' : 'trap';
         ui.select('Verlauf', () => shape, (v) => {
           if (v === 'const') { L.qa = 1; L.qb = 1; } else if (v === 'up') { L.qa = 0; L.qb = 1; }
@@ -1162,7 +1163,7 @@
           ui.num('q Anfang', () => L.qa, (v) => (L.qa = v), { step: 0.1 });
           ui.num('q Ende', () => L.qb, (v) => (L.qb = v), { step: 0.1 });
         }
-        ui.num('Höhe [px]', () => L.h, (v) => (L.h = Math.max(6, v)), { step: 2 });
+        ui.num('Höhe in px', () => L.h, (v) => (L.h = Math.max(6, v)), { step: 2 });
         ui.select('Seite', () => String(L.side ?? 1), (v) => (L.side = +v), [['1', 'oben / links'], ['-1', 'unten / rechts']]);
         ui.select('Wirkrichtung', () => L.dir || 'perp', (v) => (L.dir = v), [['perp', 'senkrecht zum Element'], ['vert', 'vertikal']]);
         ui.note('Teilbereiche: Element vorher teilen (z. B. Knoten per Drag & Drop einfügen).');
@@ -1173,17 +1174,21 @@
       if (d.type === 'angle') {
         title.textContent = 'Winkelmaß';
         const get = () => TM.angleGeom(doc, d);
-        ui.text('Bezeichnung', () => d.label, (v) => (d.label = v), { ph: 'leer = Zahlenwert' });
-        ui.num('Winkel [°]', () => get().val, (v) => setAngleDim(doc, d, v), { geom: true, step: 5 });
+        ui.text('Symbol', () => d.label, (v) => (d.label = v), { ph: 'z. B. α, β, φ' });
+        ui.select('Anzeige', () => TM.dimShow(d), (v) => (d.show = v), [['num', 'Maßzahl'], ['sym', 'Symbol'], ['both', 'Symbol = Maßzahl']]);
+        ui.check('Pfeile am Bogen', () => d.arrows !== false, (v) => (d.arrows = v));
+        ui.num('Winkel in °', () => get().val, (v) => setAngleDim(doc, d, v), { geom: true, step: 5 });
         followCheck(ui);
-        ui.num('Radius [px]', () => d.r, (v) => (d.r = Math.max(8, v)), { step: 2 });
+        ui.num('Radius in px', () => d.r, (v) => (d.r = Math.max(8, v)), { step: 2 });
         ui.check('Gegenwinkel (außen)', () => d.flip, (v) => (d.flip = v));
         if (!d.a && !d.fa) ui.select('Bezugsachse', () => String(d.aRef || 0), (v) => (d.aRef = +v), [['0', 'horizontal →'], ['180', 'horizontal ←'], ['90', 'vertikal ↑'], ['270', 'vertikal ↓']]);
         ui.note(d.fb ? 'Eine Winkeländerung dreht die Kraft.' : 'Eine Winkeländerung dreht den zweiten Schenkel um den Scheitelpunkt.');
       } else {
         title.textContent = 'Längenmaß';
         const A = M.node(doc, d.a), B = M.node(doc, d.b);
-        ui.text('Bezeichnung', () => d.label, (v) => (d.label = v), { ph: 'leer = Zahlenwert, z. B. a, 2a, l/2' });
+        ui.text('Symbol', () => d.label, (v) => (d.label = v), { ph: 'z. B. a, 2a, l/2' });
+        ui.select('Anzeige', () => TM.dimShow(d), (v) => (d.show = v), [['num', 'Maßzahl'], ['sym', 'Symbol'], ['both', 'Symbol = Maßzahl']]);
+        ui.note('Maße werden ohne Einheit eingetragen; die Längeneinheit steht im Aufgabentext (Zahlenwerte).');
         ui.num('Maß (Geometrie)', () => TM.dimGeom(d, A, B).val, (v) => {
           if (v <= 0 && d.type === 'a') return;
           let u;
@@ -1203,7 +1208,7 @@
       const t = obj;
       title.textContent = 'Text';
       ui.text('Text', () => t.text, (v) => (t.text = v));
-      ui.num('Größe [px]', () => t.size, (v) => (t.size = Math.max(6, v)), { step: 1 });
+      ui.num('Größe in px', () => t.size, (v) => (t.size = Math.max(6, v)), { step: 1 });
       ui.check('Buchstaben kursiv', () => t.italic !== false, (v) => (t.italic = v));
       del();
     }
@@ -1375,8 +1380,10 @@
 
   function givenHTML(doc) {
     const list = TM.givenList(doc);
-    if (!list.length) return '';
-    return `<p class="given"><b>Zahlenwerte:</b> ${list.map((g) => `<i>${richHTML(g.sym)}</i> = ${TM.fmtNum(g.value)}${g.unit === '°' ? '°' : '&nbsp;' + TM.esc(g.unit)}`).join(', &nbsp;')}</p>`;
+    const numDims = doc.dims.some((d) => d.type !== 'angle' && (doc.meta.showValues || TM.dimShow(d) !== 'sym' || !d.label));
+    const lenNote = numDims ? ` Längenangaben in ${TM.esc(TM.units(doc).L)}.` : '';
+    if (!list.length) return lenNote ? `<p class="given">${lenNote.trim()}</p>` : '';
+    return `<p class="given"><b>Zahlenwerte:</b> ${list.map((g) => `<i>${richHTML(g.sym)}</i> = ${TM.fmtNum(g.value)}${g.unit === '°' ? '°' : '&nbsp;' + TM.esc(g.unit)}`).join(', &nbsp;')}.${lenNote}</p>`;
   }
 
   function taskHTML(doc, sub) {

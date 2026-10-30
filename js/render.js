@@ -192,9 +192,14 @@
       const ref = L.angRef === 'h' ? { x: body.x >= 0 ? 1 : -1, y: 0 } : { x: 0, y: body.y >= 0 ? 1 : -1 };
       const r = Math.min(len * 0.6, 34);
       s += line(center, V.add(center, V.mul(ref, r + 12)), 0.9, ' stroke-dasharray="4 3"');
-      s += arcSVG(center, ref, body, r, false) ;
+      s += arcSVG(center, ref, body, r, false);
+      {
+        const cr = ref.x * body.y - ref.y * body.x; // Bildschirm: > 0 = im Uhrzeigersinn
+        const sw = cr > 0 ? -1 : 1; // Weltdrehsinn von ref nach body
+        s += arcHeads(V.add(center, V.mul(ref, r)), V.add(center, V.mul(body, r)), ref, body, sw, r);
+      }
       const mid = V.norm(V.add(ref, body));
-      const al = ctx.values ? TM.fmtNum(TM.forceRefAngle(L), 1) + '°' : L.angLabel;
+      const al = TM.dimText({ label: L.angLabel, show: L.angShow }, TM.fmtNum(TM.forceRefAngle(L), 1) + '°', ctx.values);
       const aw = TM.textWidth(al || '', STY.fs * 0.9);
       const ad = r + 7 + Math.abs(mid.x) * aw / 2 + Math.abs(mid.y) * STY.fs * 0.4;
       if (al) s += textSVG(al, center.x + mid.x * ad, center.y + mid.y * ad, { size: STY.fs * 0.9 });
@@ -337,6 +342,14 @@
     return { val, n, D1, D2 };
   };
 
+  /** Anzeige eines Maßes: Maßzahl, Symbol oder "Symbol = Maßzahl" (ohne Einheit). */
+  TM.dimShow = (d) => d.show || (d.label ? 'sym' : 'num');
+  TM.dimText = (d, num, values) => {
+    const mode = values ? 'num' : TM.dimShow(d);
+    if (mode === 'num' || !d.label) return num;
+    return mode === 'both' ? `${d.label} = ${num}` : d.label;
+  };
+
   TM.dimSVG = function (d, A, B, unit, o = {}) {
     const g = TM.dimGeom(d, A, B);
     const d1 = P(g.D1), d2 = P(g.D2), a = P(A), b = P(B);
@@ -357,7 +370,7 @@
       } else {
         s += line(V.sub(d1, V.mul(e, 14)), V.add(d2, V.mul(e, 14)), 0.9) + head(d1, e, 8, 2.6) + head(d2, V.mul(e, -1), 8, 2.6);
       }
-      const txt = (!o.values && d.label) || TM.fmtNum(g.val) + (unit ? ' ' + unit : '');
+      const txt = TM.dimText(d, TM.fmtNum(g.val), o.values);
       let ang = (Math.atan2(e.y, e.x) * 180) / Math.PI;
       if (ang > 90.01) ang -= 180;
       if (ang <= -90.01) ang += 180;
@@ -372,6 +385,15 @@
     }
     return o.edit ? s + hit : s;
   };
+
+  /** Pfeilspitzen an beiden Enden eines Winkelbogens (Bildschirmkoordinaten). */
+  function arcHeads(p1, p2, da, db, sweepWorld, r) {
+    const sg = sweepWorld > 0 ? 1 : -1;
+    // Tangente in Bildschirmkoordinaten: Weltdrehung um +90° entspricht (x, y) → (y, −x)
+    const tan = (v, k) => (k > 0 ? { x: v.y, y: -v.x } : { x: -v.y, y: v.x });
+    const L = Math.min(8, r * 0.45), W = L * 0.32;
+    return head(p2, tan(db, sg), L, W) + head(p1, tan(da, -sg), L, W);
+  }
 
   /** Richtung eines Winkelschenkels: Knoten, Bezugsachse (nur a) oder Kraft (Pfeilschaft). */
   function armDir(doc, d, which, Vn) {
@@ -409,7 +431,8 @@
     const large = Math.abs(g.sweep) > 180 ? 1 : 0, sweepFlag = g.sweep > 0 ? 0 : 1;
     const path = `M${c(p1.x)} ${c(p1.y)}A${r} ${r} 0 ${large} ${sweepFlag} ${c(p2.x)} ${c(p2.y)}`;
     if (g.val > 0.05) s += `<path d="${path}" stroke="${ink}" stroke-width="1" fill="none"/>`;
-    const txt = (!o.values && d.label) || TM.fmtNum(g.val, 1) + '°';
+    if (d.arrows !== false && g.val > 0.05) s += arcHeads(p1, p2, da, db, g.sweep, r);
+    const txt = TM.dimText(d, TM.fmtNum(g.val, 1) + '°', o.values);
     const mv = sd(V.dir(V.ang(g.dirA) + g.sweep / 2));
     const w = TM.textWidth(txt, STY.fs * 0.9);
     const dist = r + 7 + Math.abs(mv.x) * w / 2 + Math.abs(mv.y) * STY.fs * 0.45;
@@ -600,7 +623,7 @@
       if (d.type === 'angle') {
         out += G('dim', d.id, TM.angleSVG(doc, d, { edit, values }));
       } else {
-        out += G('dim', d.id, TM.dimSVG(d, nodes.get(d.a), nodes.get(d.b), values ? TM.units(doc).L : doc.meta.unit, { edit, values }));
+        out += G('dim', d.id, TM.dimSVG(d, nodes.get(d.a), nodes.get(d.b), '', { edit, values }));
       }
     }
 
