@@ -79,6 +79,32 @@
       d.meta.text = 'Bestimmen Sie die Lagerreaktionen und alle Stabkräfte des skizzierten Fachwerks.\n\nGegeben: F, a';
       return d;
     },
+    function () {
+      const b = builder(), d = b.d;
+      const T = b.N(0, 3, 'T', -22, -18), m1 = b.N(-0.5, 0, '', 0, 0), Fp = b.N(0.5, 1.5, '', 0, 0);
+      d.nodes.find((n) => n.id === T).pulley = { r: 0.5, mode: 'friction', mu: 0.3, heavy: null };
+      const r1 = b.E('rope', m1, T), r2 = b.E('rope', T, Fp);
+      d.nodes.find((n) => n.id === T).pulley.heavy = r2;
+      b.S(T, 'clamp', 90);
+      d.loads.push({ id: TM.uid('l'), type: 'mass', node: m1, value: 100, label: 'm', showG: true, gLabel: 'G' });
+      b.F(Fp, -90, 'F', { unknown: true, len: 50, tip: false, lox: 48, loy: -10 });
+      d.meta.title = 'Seilreibung an einer Trommel';
+      d.meta.text = 'Eine Masse m hängt an einem Seil, das um eine feststehende Trommel geschlungen ist (Haftreibungskoeffizient μ = 0,3).\n\nGesucht: Kraft F, mit der die Masse gerade noch hochgezogen werden kann.';
+      void r1;
+      return d;
+    },
+    function () {
+      const b = builder(), d = b.d;
+      const A = b.N(0, 0, 'A', -16, -20), G = b.N(3, 0, 'G', 0, -22), K = b.N(4.5, 0), B = b.N(6, 0, 'B', 16, -18);
+      b.E('beam', A, G); b.E('beam', G, K); b.E('beam', K, B);
+      TM.model.setJoint(d, d.nodes.find((n) => n.id === G), 'parallel');
+      b.S(A, 'clamp', 180); b.S(B, 'los');
+      b.F(K, -90, 'F_1', { value: 10 });
+      b.D('h', A, G, -1.2, 'a'); b.D('h', G, K, -1.2, 'a/2'); b.D('h', K, B, -1.2, 'a/2');
+      d.meta.title = 'Balken mit Parallelführung';
+      d.meta.text = 'Der Balken ist in A eingespannt, in G durch eine Parallelführung (Querkraftgelenk) verbunden und in B verschieblich gelagert.\n\nGesucht: Lagerreaktionen sowie Verlauf von Q und M.';
+      return d;
+    },
   ];
 
   TM.examples = examples.map((f) => () => M.normalize(f()));

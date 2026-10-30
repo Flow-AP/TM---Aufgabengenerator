@@ -15,9 +15,10 @@ Die aktuelle Aufgabe wird automatisch im Browser (localStorage) zwischengespeich
 |---|---|
 | Tragwerk | Balken (Kontur- oder Liniendarstellung), Stab (gelenkig), Seil, Feder |
 | Lager | Festlager, Loslager, Loslager mit Rollen, Einspannung, Parallelführung, Pendelstütze |
-| Verbindungen | Gelenk an beliebigen Knoten, starre Ecken bei Rahmen |
+| Verbindungen | Gelenk (M = 0), Schiebehülse (N = 0), drehbare Schiebehülse (N = 0, M = 0), Parallelführung / Querkraftgelenk (Q = 0), starre Ecken bei Rahmen |
+| Seil & Masse | Rolle (frei drehbar), feste Trommel mit Seilreibung (Euler-Eytelwein, Grenzfall), Massenblock (G = m·g, hängend oder aufliegend) |
 | Lasten | Einzelkraft (beliebige Richtung, optional mit Winkelangabe α), Moment (beide Drehsinne), Streckenlast (konstant, Dreieck, Trapez; senkrecht oder vertikal wirkend) |
-| Bemaßung | Länge horizontal / vertikal / parallel, Winkel zwischen zwei Elementen oder zur Horizontalen/Vertikalen |
+| Bemaßung | Länge horizontal / vertikal / parallel (Maßzahl immer über der Maßlinie), Winkel zwischen Elementen, Kräften oder zur Horizontalen/Vertikalen |
 | Beschriftung | Knotennamen (A, B, …, auch automatisch), Elementbeschriftung (EI, 1, 2 …), freie Texte, Indizes `F_1`, `q_{0}`, Exponenten `x^2`, griechische Buchstaben `\alpha` |
 | Export | SVG, PNG (3-fache Auflösung), Drucken / PDF mit Titel und Aufgabentext, Speichern/Laden als JSON |
 
@@ -32,6 +33,11 @@ Mit **Durchrechnen** (oder dem Reiter *Lösung*) wird die Aufgabe gelöst:
 * **Schnittgrößen N, Q, M** als Diagramme, untereinander oder direkt am Tragwerk. Auch Rahmen sind möglich.
   Randwerte und Extremwerte sind beschriftet (Extremwert bei Q = 0 exakt bestimmt). Die gestrichelte Faser zeigt
   das Bezugssystem. Bei Fachwerken stehen die Stabkräfte direkt am Stab (Druckstäbe gestrichelt).
+* **Gesuchte Lasten:** Kräfte, Momente oder Massen lassen sich als „gesucht“ markieren; ihr Betrag wird aus dem
+  Gleichgewicht berechnet (z. B. Haltekraft an einer Seiltrommel).
+* **Rollen und Trommeln:** Das Seil liegt tangential an. Bei einer freien Rolle sind beide Seilkräfte gleich. Bei
+  einer festen Trommel gilt im Grenzfall S_groß = S_klein · e^(μα), der Umschlingungswinkel α wird aus der Geometrie bestimmt.
+  Verschiebliche Systeme (Seil mit hängender Masse) werden gelöst, wenn die Belastung im Gleichgewicht ist.
 * **Freikörperbild:** Lager werden durch die berechneten Reaktionskräfte ersetzt.
 * **Live-Anpassung:** Kraft entlang des Balkens ziehen, Richtung am runden Griff ändern, Knoten verschieben,
   Zahlenwerte im Bereich *Werte verändern* ändern – Lösung und Diagramme passen sich sofort an.
@@ -57,6 +63,9 @@ N > 0 ist Zug. Q und M sind auf die gestrichelte Faser bezogen, M ist auf der Zu
 * **Maße als Geometrie:** Maß auswählen und rechts den Zahlenwert ändern – die Konstruktion wird gestreckt
   (Option „Angehängte Teile mitbewegen“). Die angezeigte Bezeichnung (z. B. `a`, `2a`, `l/2`) ist davon unabhängig.
 * **Verbinden:** Knoten auf einen anderen Knoten oder ein Element ziehen.
+* **Beschriftungen von Lasten** (F_1, q_0, M_1 …) lassen sich mit der Maus frei verschieben.
+* **Winkel an Kräften:** Winkelwerkzeug, Kraft anklicken, dann ein Element am Angriffspunkt, eine zweite Kraft oder
+  eine freie Stelle (Bezugsachse). Ändert man den Winkelwert, dreht sich die Kraft mit.
 * **Ansicht:** Hintergrund ziehen, Mitteltaste oder Leertaste = verschieben, Mausrad = Zoom, `F` = einpassen.
 * **Tasten:** `Entf` löschen, `R` drehen (Lager/Kraft), `H` Gelenk umschalten, `Esc` Werkzeug beenden,
   `Strg+Z` / `Strg+Y` rückgängig/wiederholen, `Strg+S` speichern.

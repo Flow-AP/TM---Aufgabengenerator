@@ -110,9 +110,9 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3p
 #drawing .hit { stroke: transparent !important; fill: none; pointer-events: stroke; }
 #drawing .hitr { fill: transparent; stroke: none !important; pointer-events: all; }
 #drawing .obj { cursor: pointer; }
-#drawing .obj:hover :is(line, path, polygon, circle):not(.hit):not(.hitr) { stroke: #4a90e2; }
+#drawing .obj:hover :is(line, path, polygon, circle, rect):not(.hit):not(.hitr) { stroke: #4a90e2; }
 #drawing .obj:hover text { fill: #4a90e2; }
-#drawing .obj.sel :is(line, path, polygon, circle):not(.hit):not(.hitr) { stroke: var(--accent); }
+#drawing .obj.sel :is(line, path, polygon, circle, rect):not(.hit):not(.hitr) { stroke: var(--accent); }
 #drawing .obj.sel .fk, #drawing .obj:hover .fk { fill: var(--accent); }
 #drawing .obj.sel text { fill: var(--accent); }
 

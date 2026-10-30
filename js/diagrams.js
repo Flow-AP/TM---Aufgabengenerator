@@ -105,6 +105,9 @@
         const mid = V.lerp(a, b, 0.5), us = V.norm(V.sub(b, a));
         let nrm = { x: -us.y, y: us.x };
         if (nrm.y > 0) nrm = V.mul(nrm, -1);
+        // vertikale Stäbe: Wert auf der vom Schwerpunkt abgewandten Seite
+        const cx = res.members.reduce((acc, mm) => acc + (mm.A.x + mm.B.x) / 2, 0) / res.members.length * S;
+        if (Math.abs(nrm.x) > 0.7 && (mid.x - cx) * nrm.x < 0) nrm = V.mul(nrm, -1);
         const txt = TM.fmtNum(v);
         const pos = V.add(mid, V.mul(nrm, 9 + Math.abs(nrm.x) * TM.textWidth(txt, 13) / 2));
         s += `<text x="${c(pos.x)}" y="${c(pos.y)}" font-family="${TM.STY.font}" font-size="13" text-anchor="middle" dominant-baseline="central" fill="${col}" stroke="#fff" stroke-width="3" paint-order="stroke">${txt}</text>`;
@@ -196,8 +199,8 @@
       prevBottom = minY + dy - amp / S - 18 / S;
       // Systemlinien
       let ax = '';
-      for (const e of doc.elements) {
-        const A = doc.nodes.find((n) => n.id === e.n1), B = doc.nodes.find((n) => n.id === e.n2);
+      for (const m of res.members) {
+        const A = m.A, B = m.B;
         const a = P({ x: A.x, y: A.y + dy }), b = P({ x: B.x, y: B.y + dy });
         ax += `M${c(a.x)} ${c(a.y)}L${c(b.x)} ${c(b.y)}`;
       }
@@ -205,7 +208,7 @@
       if (t !== 'N') s += fiber(doc, dy, 3);
       s += diagram(doc, res, t, dy, amp / mx, labels, u);
       const lp = P({ x: minX, y: (minY + maxY) / 2 + dy });
-      s += TM.textSVG(t, lp.x - 46, lp.y, { size: 20, fill: COLORS[t], suffix: ` [${t === 'M' ? u.M : u.F}]` }).replace('font-size="20"', 'font-size="20" font-weight="bold"');
+      s += TM.textSVG(t, lp.x - 40, lp.y, { anchor: 'end', size: 20, fill: COLORS[t], suffix: ` [${t === 'M' ? u.M : u.F}]` }).replace('font-size="20"', 'font-size="20" font-weight="bold"');
     }
     return s;
   };

@@ -39,6 +39,12 @@
     schiebe: { name: 'Parallel­führung', group: 'Lager' },
     pendel: { name: 'Pendel­stütze', group: 'Lager' },
     hinge: { name: 'Gelenk', group: 'Verbindung' },
+    sleeve: { name: 'Schiebe­hülse', group: 'Verbindung' },
+    sleevepin: { name: 'Schiebehülse drehbar', group: 'Verbindung' },
+    parallel: { name: 'Parallel­führung (Q = 0)', group: 'Verbindung' },
+    pulley: { name: 'Rolle', group: 'Seil & Masse' },
+    drum: { name: 'Feste Trommel (Reibung)', group: 'Seil & Masse' },
+    mass: { name: 'Masse', group: 'Seil & Masse' },
     force: { name: 'Einzelkraft', group: 'Lasten' },
     moment: { name: 'Moment', group: 'Lasten' },
     qconst: { name: 'Strecken­last', group: 'Lasten' },
@@ -66,6 +72,10 @@
       case 'clamp': s = `<path d="M24 20H52" stroke="${k}" stroke-width="7"/><path d="M24 20H52" stroke="#fff" stroke-width="3.5"/>` + sup('clamp', 20, 20, 90, 0); break;
       case 'schiebe': s = `<path d="M30 20H52" stroke="${k}" stroke-width="7"/><path d="M30 20H52" stroke="#fff" stroke-width="3.5"/>` + sup('schiebe', 26, 20, 90, 0); break;
       case 'pendel': s = `<line x1="28" y1="4" x2="28" y2="20" stroke="${k}" stroke-width="2"/><circle cx="28" cy="4" r="3" fill="#fff" stroke="${k}" stroke-width="1.3"/>` + `<g transform="translate(28 20) scale(.8)">${TM.supportShape('fest')}</g>`; break;
+      case 'sleeve': case 'sleevepin': s = `<path d="M6 20H50" stroke="${k}" stroke-width="7"/><path d="M6 20H50" stroke="#fff" stroke-width="3.5"/><rect x="18" y="12" width="20" height="16" fill="none" stroke="${k}" stroke-width="1.6"/>` + (item === 'sleevepin' ? `<circle cx="28" cy="20" r="3.6" fill="#fff" stroke="${k}" stroke-width="1.4"/>` : ''); break;
+      case 'parallel': s = `<path d="M6 20H50" stroke="${k}" stroke-width="7"/><path d="M6 20H50" stroke="#fff" stroke-width="3.5"/><rect x="23" y="15" width="10" height="10" fill="#fff"/><line x1="23" y1="9" x2="23" y2="31" stroke="${k}" stroke-width="2"/><line x1="33" y1="9" x2="33" y2="31" stroke="${k}" stroke-width="2"/><line x1="23" y1="11" x2="33" y2="11" stroke="${k}" stroke-width="1.2"/><line x1="23" y1="29" x2="33" y2="29" stroke="${k}" stroke-width="1.2"/>`; break;
+      case 'pulley': case 'drum': s = `<line x1="16" y1="20" x2="16" y2="38" stroke="${k}" stroke-width="1.3"/><line x1="40" y1="20" x2="40" y2="38" stroke="${k}" stroke-width="1.3"/><path d="M16 20A12 12 0 0 1 40 20" stroke="${k}" stroke-width="2" fill="none"/><circle cx="28" cy="20" r="12" fill="${item === 'drum' ? '#e4e4e4' : '#fff'}" stroke="${k}" stroke-width="1.6"/><circle cx="28" cy="20" r="2.4" fill="#fff" stroke="${k}"/>`; break;
+      case 'mass': s = `<line x1="28" y1="2" x2="28" y2="12" stroke="${k}" stroke-width="1.3"/><rect x="15" y="12" width="26" height="22" fill="#eee" stroke="${k}" stroke-width="1.6"/><text x="28" y="27" font-size="13" text-anchor="middle" font-style="italic" font-family="serif">m</text>`; break;
       case 'hinge': s = `<path d="M6 20H50" stroke="${k}" stroke-width="7"/><path d="M6 20H50" stroke="#fff" stroke-width="3.5"/><circle cx="28" cy="20" r="4.5" fill="#fff" stroke="${k}" stroke-width="1.5"/>`; break;
       case 'force': s = TM.arrowSVG({ x: 20, y: 4 }, { x: 34, y: 34 }, { w: 2, hl: 10, hw: 4 }); break;
       case 'moment': s = `<path d="M22 30A11 11 0 1 1 36 29" stroke="${k}" stroke-width="2" fill="none"/><polygon points="37,30 32,25 30,33" fill="${k}"/>`; break;
@@ -249,11 +259,12 @@
   function persist() { try { localStorage.setItem(STORE, snapshot()); } catch (e) { /* ignorieren */ } }
   function validateSel() {
     if (!ed.sel) return;
-    const k = ed.sel.kind === 'nlabel' ? 'node' : ed.sel.kind;
+    const k = ed.sel.kind === 'nlabel' ? 'node' : ed.sel.kind === 'llabel' ? 'load' : ed.sel.kind;
     if (!M.get(ed.doc, k, ed.sel.id)) ed.sel = null;
   }
   function setSel(s) {
     if (s && s.kind === 'nlabel') s = { kind: 'node', id: s.id };
+    if (s && s.kind === 'llabel') s = { kind: 'load', id: s.id };
     ed.sel = s;
     redraw();
     buildProps();
@@ -275,7 +286,8 @@
     if (ed.mode === 'solve') {
       ed.res = TM.solve(ed.doc);
       const ok = ed.res && ed.res.members;
-      html = TM.render(ed.doc, { edit: true, sel: ed.sel, z, hideSupports: ok && ed.sopt.freebody });
+      const solved = ok ? new Map(ed.res.unknownLoads.map((x) => [x.l.id, x.v])) : null;
+      html = TM.render(ed.doc, { edit: true, sel: ed.sel, z, hideSupports: ok && ed.sopt.freebody, solved });
       if (ok) html += `<g pointer-events="none">${TM.renderSolution(ed.doc, ed.res, ed.sopt)}</g>`;
     } else html = TM.render(ed.doc, { edit: true, sel: ed.sel, z });
     gDraw.innerHTML = html;
@@ -381,8 +393,13 @@
   // ================================================================ Platzieren
   function nextLabel(base) {
     const used = new Set(ed.doc.loads.map((l) => l.label));
-    if (!used.has(base)) return base;
     for (let k = 1; ; k++) if (!used.has(`${base}_${k}`)) return `${base}_${k}`;
+  }
+
+  function nextMassLabel() {
+    const used = new Set(ed.doc.loads.filter((l) => l.type === 'mass').map((l) => l.label));
+    if (!used.size) return 'm';
+    for (let k = 1; ; k++) if (!used.has(`m_${k}`)) return `m_${k}`;
   }
 
   function defaultSupportAngle(nid, type) {
@@ -426,11 +443,25 @@
           out = { kind: 'support', id: s.id };
           break;
         }
-        case 'hinge': {
-          if (sn.kind === 'pt') { err = 'Gelenk bitte auf einen Knoten oder ein Tragwerk ziehen.'; return; }
+        case 'hinge': case 'sleeve': case 'sleevepin': case 'parallel': {
+          if (sn.kind === 'pt') { err = 'Verbindung bitte auf einen Knoten oder ein Tragwerk ziehen.'; return; }
           const nid = resolve(sn);
-          M.node(doc, nid).hinge = true;
+          M.setJoint(doc, M.node(doc, nid), item === 'hinge' ? 'pin' : item);
           out = { kind: 'node', id: nid };
+          break;
+        }
+        case 'pulley': case 'drum': {
+          const nid = resolve(sn), n = M.node(doc, nid);
+          n.pulley = { r: 0.4, mode: item === 'drum' ? 'friction' : 'free', mu: 0.3, heavy: null };
+          if (!M.supportAt(doc, nid) && !M.elementsAt(doc, nid).length)
+            doc.supports.push({ id: TM.uid('s'), node: nid, type: item === 'drum' ? 'clamp' : 'fest', angle: 90 });
+          out = { kind: 'node', id: nid };
+          break;
+        }
+        case 'mass': {
+          const L = { id: TM.uid('l'), type: 'mass', node: resolve(sn), value: 50, label: nextMassLabel(), showG: false, gLabel: 'G' };
+          doc.loads.push(L);
+          out = { kind: 'load', id: L.id };
           break;
         }
         case 'force': {
@@ -440,7 +471,7 @@
           break;
         }
         case 'moment': {
-          const L = { id: TM.uid('l'), type: 'moment', node: resolve(sn), value: 10, ccw: true, r: 20, gap: -90, label: nextLabel('M_0') };
+          const L = { id: TM.uid('l'), type: 'moment', node: resolve(sn), value: 10, ccw: true, r: 20, gap: -90, label: nextLabel('M') };
           doc.loads.push(L);
           out = { kind: 'load', id: L.id };
           break;
@@ -520,6 +551,13 @@
     const before = snapshot();
     const rotHandle = kind === 'fhandle';
     if (rotHandle) kind = 'load';
+    if (kind === 'llabel') {
+      setSel({ kind: 'load', id });
+      const L = M.get(ed.doc, 'load', id);
+      ed.drag = { before, start: p, moved: false, type: 'llabel', id, ox: L.lox || 0, oy: L.loy || 0 };
+      capture(e);
+      return;
+    }
     if (!(ed.sel && ed.sel.kind === kind && ed.sel.id === id)) setSel({ kind, id });
     const doc = ed.doc;
     const base = { before, start: p, moved: false };
@@ -619,38 +657,78 @@
     drawOverlay();
   }
 
+  function forceAt(e) {
+    const hit = e.target.closest && e.target.closest('[data-kind="load"],[data-kind="llabel"],[data-kind="fhandle"]');
+    if (!hit) return null;
+    const L = M.get(ed.doc, 'load', hit.dataset.id);
+    return L && L.type === 'force' ? L : null;
+  }
+
   function angleDown(e, p) {
     const t = ed.tool, doc = ed.doc;
-    const h = M.elementAt(doc, p, tolW(10));
+    const F = forceAt(e);
+    const h = F ? null : M.elementAt(doc, p, tolW(10));
     if (!t.first) {
-      if (!h) return toast('Bitte zuerst ein Element (Balken, Stab, Seil) anklicken.');
-      t.first = { el: h.el.id, p };
+      if (F) t.first = { force: F.id, p };
+      else if (h) t.first = { el: h.el.id, p };
+      else return toast('Bitte zuerst ein Element oder eine Kraft anklicken.');
       updateHint();
       drawOverlay();
       return;
     }
-    const e1 = M.el(doc, t.first.el);
+    const refTo = (vtx) => {
+      const ref = Math.round(V.ang(V.sub(p, vtx)) / 90) * 90;
+      return ((ref % 360) + 360) % 360;
+    };
     let dim = null;
-    if (h && h.el.id !== e1.id) {
+    const fail = (msg) => { toast(msg); t.first = null; drawOverlay(); updateHint(); };
+    const F1 = t.first.force && M.get(doc, 'load', t.first.force);
+    const e1 = t.first.el && M.el(doc, t.first.el);
+    if (F1 || F) {
+      // Winkel an einer Kraft: Schenkel A = Element, zweite Kraft oder Bezugsachse; Schenkel B = Kraft
+      const Fb = F1 || F;
+      const vtx = M.node(doc, Fb.node);
+      const other = F1 ? (F && F.id !== F1.id ? { force: F } : h ? { el: h.el } : null) : { el: e1 };
+      if (other && other.force) {
+        if (other.force.node !== Fb.node) return fail('Die Kräfte greifen nicht im selben Punkt an.');
+        dim = { v: vtx.id, fa: other.force.id, a: null, fb: Fb.id, b: null };
+      } else if (other && other.el) {
+        const el = other.el;
+        if (el.n1 !== vtx.id && el.n2 !== vtx.id) return fail('Das Element geht nicht durch den Angriffspunkt der Kraft.');
+        dim = { v: vtx.id, a: M.other(el, vtx.id), fb: Fb.id, b: null };
+      } else {
+        dim = { v: vtx.id, a: null, aRef: refTo(vtx), fb: Fb.id, b: null };
+      }
+    } else if (h && h.el.id !== e1.id) {
       const e2 = h.el;
       const shared = [e1.n1, e1.n2].find((n) => n === e2.n1 || n === e2.n2);
-      if (!shared) { toast('Die beiden Elemente haben keinen gemeinsamen Knoten.'); t.first = null; drawOverlay(); return; }
-      dim = { type: 'angle', v: shared, a: M.other(e1, shared), b: M.other(e2, shared), aRef: 0 };
+      if (!shared) return fail('Die beiden Elemente haben keinen gemeinsamen Knoten.');
+      dim = { v: shared, a: M.other(e1, shared), b: M.other(e2, shared), aRef: 0 };
     } else {
       const A = M.node(doc, e1.n1), B = M.node(doc, e1.n2);
       const vtx = V.dist(t.first.p, A) <= V.dist(t.first.p, B) ? A : B;
-      const ref = Math.round(V.ang(V.sub(p, vtx)) / 90) * 90;
-      dim = { type: 'angle', v: vtx.id, a: null, aRef: ((ref % 360) + 360) % 360, b: M.other(e1, vtx.id) };
+      dim = { v: vtx.id, a: null, aRef: refTo(vtx), b: M.other(e1, vtx.id) };
     }
     let id = null;
     mutate(() => {
-      const d = { id: TM.uid('d'), label: 'α', r: 30, flip: false, ...dim };
+      const d = { id: TM.uid('d'), type: 'angle', label: 'α', r: 30, flip: false, ...dim };
       ed.doc.dims.push(d);
       id = d.id;
     });
     t.first = null;
     if (id) setSel({ kind: 'dim', id });
     updateHint();
+  }
+
+  /** Setzt den Wert eines Winkelmaßes: dreht die Kraft bzw. den zweiten Schenkel. */
+  function setAngleDim(doc, d, v) {
+    const g = TM.angleGeom(doc, d);
+    const target = (Math.sign(g.sweep) || 1) * v;
+    if (d.fb) {
+      const L = M.get(doc, 'load', d.fb);
+      const nb = V.rot(g.dirA, target);
+      L.angle = TM.clean(norm180(V.ang(nb) + (L.tip !== false ? 180 : 0)));
+    } else M.rotateAbout(doc, d.v, d.b, target - g.sweep, ed.follow, d.a);
   }
 
   svg.addEventListener('pointermove', (e) => {
@@ -749,6 +827,12 @@
         t.x = TM.clean(d.ox + p.x - d.start.x); t.y = TM.clean(d.oy + p.y - d.start.y);
         break;
       }
+      case 'llabel': {
+        const L = M.get(doc, 'load', d.id);
+        L.lox = Math.round(d.ox + (p.x - d.start.x) * S);
+        L.loy = Math.round(d.oy - (p.y - d.start.y) * S);
+        break;
+      }
       case 'nlabel': {
         const n = M.node(doc, d.id);
         n.lx = Math.round((p.x - n.x) * S); n.ly = Math.round(-(p.y - n.y) * S);
@@ -823,7 +907,7 @@
     if (e.key === 'f' || e.key === 'F') { fitView(); return; }
     if ((e.key === 'r' || e.key === 'R') && ed.sel) { rotateSel(e.shiftKey ? -1 : 1); return; }
     if ((e.key === 'h' || e.key === 'H') && ed.sel && ed.sel.kind === 'node') {
-      mutate(() => { const n = M.node(ed.doc, ed.sel.id); n.hinge = !n.hinge; });
+      mutate(() => { const n = M.node(ed.doc, ed.sel.id); M.setJoint(ed.doc, n, n.hinge ? 'rigid' : 'pin'); });
     }
   });
   window.addEventListener('keyup', (e) => { if (e.key === ' ') ed.space = false; });
@@ -931,14 +1015,45 @@
     ui.text('Bezeichnung', () => n.label, (v) => (n.label = v), { ph: 'z. B. A' });
     ui.num('x', () => n.x, (v) => (n.x = v), { geom: true, step: step() });
     ui.num('y', () => n.y, (v) => (n.y = v), { geom: true, step: step() });
-    ui.check('Gelenk', () => n.hinge, (v) => (n.hinge = v));
+    ui.select('Verbindung', () => M.jointType(n), (v) => M.setJoint(ed.doc, n, v), [
+      ['rigid', 'biegesteif'], ['pin', 'Gelenk (M = 0)'], ['sleeve', 'Schiebehülse (N = 0)'],
+      ['sleevepin', 'Schiebehülse drehbar (N = 0, M = 0)'], ['parallel', 'Parallelführung (Q = 0)'],
+    ]);
+    if (n.joint) {
+      ui.num('Führung [°]', () => n.jangle || 0, (v) => (n.jangle = v), { step: 15 });
+      ui.note('Führungsrichtung der Verbindung (Gleitrichtung). Standard: Richtung des ersten angeschlossenen Elements.');
+    }
+    if (n.pulley) {
+      const pl = n.pulley;
+      ui.section(pl.mode === 'friction' ? 'Feste Trommel' : 'Rolle');
+      ui.num('Radius', () => pl.r, (v) => { if (v > 0) pl.r = v; }, { step: 0.1 });
+      ui.select('Art', () => pl.mode, (v) => (pl.mode = v), [['free', 'frei drehbar (reibungsfrei)'], ['friction', 'feststehend mit Seilreibung']]);
+      if (pl.mode === 'friction') {
+        ui.num('Reibung μ', () => pl.mu, (v) => (pl.mu = Math.max(0, v)), { step: 0.05 });
+        const ropes = M.elementsAt(ed.doc, n.id).filter((e) => e.type === 'rope');
+        if (ropes.length === 2) {
+          const nm = (e) => { const o = M.node(ed.doc, M.other(e, n.id)); return (o.label ? `zu ${o.label}` : o.x < n.x ? 'links' : 'rechts') + ` (${TM.memberName(ed.doc, e)})`; };
+          ui.select('Größere Seilkraft', () => pl.heavy || ropes[0].id, (v) => (pl.heavy = v), ropes.map((e) => [e.id, nm(e)]));
+          ui.note('Grenzfall der Haftung (Euler-Eytelwein): S<sub>groß</sub> = S<sub>klein</sub> · e<sup>μα</sup>. Gewählt wird das Seil, in dessen Richtung das Seil zu rutschen droht. Die Trommel braucht eine Einspannung oder einen biegesteifen Anschluss.');
+        }
+      }
+      ui.buttons([['Rolle entfernen', () => mutate(() => { delete n.pulley; })]]);
+    }
     const sup = M.supportAt(ed.doc, n.id);
     const btns = [];
     if (M.elementsAt(ed.doc, n.id).length === 2)
       btns.push(['Knoten auflösen', () => { let err; mutate(() => { err = M.dissolveNode(ed.doc, n.id); }); if (err) toast(err); else setSel(null); }]);
     if (!sup) btns.push(['Festlager hier', () => addSupportAt(n.id, 'fest')]);
+    if (!n.pulley) btns.push(['Rolle hier', () => mutate(() => { n.pulley = { r: 0.4, mode: 'free', mu: 0.3, heavy: null }; })]);
     btns.push(['Kraft hier', () => { const L = { id: TM.uid('l'), type: 'force', node: n.id, angle: -90, value: 10, len: 55, tip: true, label: nextLabel('F'), angRef: 'none', angLabel: 'α' }; mutate(() => ed.doc.loads.push(L)); setSel({ kind: 'load', id: L.id }); }]);
     ui.buttons(btns);
+  }
+
+  function unknownField(ui, L) {
+    const unit = TM.loadUnit(ed.doc, L);
+    ui.check('gesucht (unbekannt)', () => L.unknown, (v) => (L.unknown = v));
+    if (!L.unknown) ui.num(`${L.type === 'mass' ? 'Masse' : 'Betrag'} [${unit}]`, () => L.value, (v) => (L.value = v), { step: 1 });
+    else ui.note('Der Betrag wird beim Durchrechnen aus dem Gleichgewicht bestimmt (Richtung bleibt fest).');
   }
 
   function addSupportAt(nid, type) {
@@ -1009,7 +1124,7 @@
       if (L.type === 'force') {
         title.textContent = 'Einzelkraft';
         ui.text('Bezeichnung', () => L.label, (v) => (L.label = v), { ph: 'F, F_1, 2F …' });
-        ui.num(`Betrag [${TM.units(doc).F}]`, () => L.value, (v) => (L.value = v), { step: 1 });
+        unknownField(ui, L);
         ui.num('Wirkrichtung [°]', () => L.angle, (v) => (L.angle = v), { step: 15 });
         ui.buttons([['↓', () => mutate(() => (L.angle = -90))], ['↑', () => mutate(() => (L.angle = 90))], ['→', () => mutate(() => (L.angle = 0))], ['←', () => mutate(() => (L.angle = 180))]]);
         ui.num('Pfeillänge [px]', () => L.len, (v) => (L.len = Math.max(15, v)), { step: 5 });
@@ -1021,10 +1136,18 @@
       } else if (L.type === 'moment') {
         title.textContent = 'Moment';
         ui.text('Bezeichnung', () => L.label, (v) => (L.label = v), { ph: 'M_0' });
-        ui.num(`Betrag [${TM.units(doc).M}]`, () => L.value, (v) => (L.value = v), { step: 1 });
+        unknownField(ui, L);
         ui.select('Drehsinn', () => (L.ccw !== false ? '1' : '0'), (v) => (L.ccw = v === '1'), [['1', 'gegen den Uhrzeigersinn ↺'], ['0', 'im Uhrzeigersinn ↻']]);
         ui.num('Radius [px]', () => L.r, (v) => (L.r = Math.max(8, v)), { step: 2 });
         ui.num('Öffnung [°]', () => L.gap, (v) => (L.gap = v), { step: 45 });
+      } else if (L.type === 'mass') {
+        title.textContent = 'Masse';
+        ui.text('Bezeichnung', () => L.label, (v) => (L.label = v), { ph: 'm, m_1, 2m …' });
+        unknownField(ui, L);
+        ui.note(`Gewichtskraft G = m·g mit g = 9,81 m/s² (= ${TM.fmtNum(TM.gUnit(doc) * (+L.value || 0), 3)} ${TM.esc(TM.units(doc).F)}).`);
+        ui.select('Lage', () => L.pos || 'auto', (v) => (L.pos = v === 'auto' ? null : v), [['auto', 'automatisch'], ['hang', 'hängend'], ['top', 'aufliegend']]);
+        ui.check('Gewichtskraft zeichnen', () => L.showG, (v) => (L.showG = v));
+        if (L.showG) ui.text('Bez. Gewicht', () => L.gLabel, (v) => (L.gLabel = v), { ph: 'G, mg' });
       } else {
         title.textContent = 'Streckenlast';
         ui.text('Bezeichnung', () => L.label, (v) => (L.label = v), { ph: 'q_0' });
@@ -1048,18 +1171,14 @@
       const d = obj;
       if (d.type === 'angle') {
         title.textContent = 'Winkelmaß';
-        const get = () => TM.angleGeom(d, M.node(doc, d.v), d.a ? M.node(doc, d.a) : null, M.node(doc, d.b));
+        const get = () => TM.angleGeom(doc, d);
         ui.text('Bezeichnung', () => d.label, (v) => (d.label = v), { ph: 'leer = Zahlenwert' });
-        ui.num('Winkel [°]', () => get().val, (v) => {
-          const g = get();
-          const target = (Math.sign(g.sweep) || 1) * v;
-          M.rotateAbout(doc, d.v, d.b, target - g.sweep, ed.follow, d.a);
-        }, { geom: true, step: 5 });
+        ui.num('Winkel [°]', () => get().val, (v) => setAngleDim(doc, d, v), { geom: true, step: 5 });
         followCheck(ui);
         ui.num('Radius [px]', () => d.r, (v) => (d.r = Math.max(8, v)), { step: 2 });
         ui.check('Gegenwinkel (außen)', () => d.flip, (v) => (d.flip = v));
-        if (!d.a) ui.select('Bezugsachse', () => String(d.aRef || 0), (v) => (d.aRef = +v), [['0', 'horizontal →'], ['180', 'horizontal ←'], ['90', 'vertikal ↑'], ['270', 'vertikal ↓']]);
-        ui.note('Eine Winkeländerung dreht den zweiten Schenkel um den Scheitelpunkt.');
+        if (!d.a && !d.fa) ui.select('Bezugsachse', () => String(d.aRef || 0), (v) => (d.aRef = +v), [['0', 'horizontal →'], ['180', 'horizontal ←'], ['90', 'vertikal ↑'], ['270', 'vertikal ↓']]);
+        ui.note(d.fb ? 'Eine Winkeländerung dreht die Kraft.' : 'Eine Winkeländerung dreht den zweiten Schenkel um den Scheitelpunkt.');
       } else {
         title.textContent = 'Längenmaß';
         const A = M.node(doc, d.a), B = M.node(doc, d.b);
@@ -1160,7 +1279,7 @@
     let h;
     if (t.name === 'draw') h = `${ITEMS[t.type].name} zeichnen: ${t.start ? 'Endpunkt klicken (Esc/Rechtsklick beendet)' : 'Startpunkt klicken oder ziehen'} · Shift = 15°`;
     else if (t.name === 'dim') h = `Bemaßung: ${!t.a ? '1. Punkt klicken' : !t.b ? '2. Punkt klicken' : 'Lage der Maßlinie klicken'} · Esc beendet`;
-    else if (t.name === 'angle') h = t.first ? 'Winkel: 2. Element (gemeinsamer Knoten) oder freie Stelle (Bezugsachse) klicken' : 'Winkel: 1. Element anklicken';
+    else if (t.name === 'angle') h = t.first ? 'Winkel: 2. Element bzw. Kraft (gemeinsamer Punkt) oder freie Stelle (Bezugsachse) klicken' : 'Winkel: 1. Element oder Kraft anklicken';
     else if (t.name === 'place') h = `${ITEMS[t.item].name}: auf Knoten, Element oder Fläche klicken · Esc bricht ab`;
     else h = 'Auswahl: Objekte anklicken und ziehen · Bauteile aus der Palette auf die Fläche ziehen';
     $('#hint').textContent = h;
@@ -1197,7 +1316,7 @@
     if (o.solution) {
       const res = o.res || TM.solve(doc);
       const ok = res && res.members;
-      content = TM.render(doc, { edit: false, hideSupports: ok }) +
+      content = TM.render(doc, { edit: false, hideSupports: ok, solved: ok ? new Map(res.unknownLoads.map((x) => [x.l.id, x.v])) : null }) +
         (ok ? TM.renderSolution(doc, res, { show: { N: true, Q: true, M: true }, layout: 'stack', scale: ed.sopt.scale, freebody: true }) : '');
     } else content = TM.render(doc, { edit: false });
     const tmp = document.createElementNS(NS, 'svg');
@@ -1362,6 +1481,7 @@
     const st = res.status, cnt = st.count;
     let h = '';
     if (st.determinate) h += '<div class="badge ok">✓ statisch bestimmt</div>';
+    else if (st.solvable) h += `<div class="badge warn">⚠ kinematisch verschieblich (${st.mobility} Freiheitsgrad${st.mobility > 1 ? 'e' : ''}), für diese Belastung aber im Gleichgewicht</div>`;
     else {
       const parts = [];
       if (st.kinematic) parts.push(`kinematisch verschieblich (${st.mobility} Freiheitsgrad${st.mobility > 1 ? 'e' : ''})`);
@@ -1371,15 +1491,22 @@
     h += `<div class="note">Abzählkriterium: <i>a</i> = ${cnt.a}, <i>z</i> = ${cnt.z}, <i>p</i> = ${cnt.p} ⇒ <i>n</i> = <i>a</i> + <i>z</i> − 3<i>p</i> = ${cnt.n}`;
     const fsys = st.f;
     if (cnt.n !== fsys) h += `<br>Gleichungssystem: ${st.u} Unbekannte, ${st.g} Gleichungen (enthält ${fsys - cnt.n > 0 ? 'innere Unbestimmtheit geschlossener Rahmen' : 'Sonderfälle'})`;
-    if (!st.determinate && cnt.n === 0) h += '<br>Das Abzählkriterium ist erfüllt, aber die Anordnung ist <b>Ausnahmefall</b> (z. B. Lagerkräfte schneiden sich in einem Punkt oder sind parallel).';
+    if (cnt.u) h += `<br>davon ${cnt.u} gesuchte Last${cnt.u > 1 ? 'en' : ''} als Unbekannte`;
+    if (!st.solvable && cnt.n === 0) h += '<br>Das Abzählkriterium ist erfüllt, aber die Anordnung ist <b>Ausnahmefall</b> (z. B. Lagerkräfte schneiden sich in einem Punkt oder sind parallel).';
     if (st.kinematic && !st.indeterminate && cnt.n > 0) h += '<br>Teilweise verschieblich trotz n > 0.';
     h += `<br>Rang ${st.rank} · ${st.u} Unbekannte · ${st.g} Gleichungen</div>`;
     for (const w of [...new Set(res.warnings)]) h += `<div class="warnl">⚠ ${TM.esc(w)}</div>`;
-    if (!st.determinate) {
+    if (!st.solvable) {
+      if (st.kinematic && !st.indeterminate && !print) h += '<div class="note">Die Belastung ist mit der Lagerung nicht im Gleichgewicht. Tipp: eine Last als „gesucht“ markieren.</div>';
       if (!print) h += '<div class="note">Für Lagerreaktionen und Schnittgrößen muss das System statisch bestimmt sein.</div>';
       return h;
     }
     const row = (name, v, unit, hint = '') => `<tr><td>${rh(name)}</td><td class="v">${fmtV(v)} ${TM.esc(unit)}</td><td class="h">${hint}</td></tr>`;
+    if (res.unknownLoads.length) {
+      h += '<h4>Gesuchte Lasten</h4><table class="res">';
+      for (const { l, v } of res.unknownLoads) h += row(l.label || '?', v, TM.loadUnit(doc, l), v < -1e-9 ? 'entgegen der gezeichneten Richtung' : '');
+      h += '</table>';
+    }
     h += '<h4>Lagerreaktionen</h4><table class="res">';
     for (const r of res.reactions) for (const cp of r.comps) {
       const name = TM.reactionName(doc, r.s, cp);
@@ -1396,6 +1523,15 @@
     if (twoForce.length) {
       h += '<h4>Stab- und Seilkräfte</h4><table class="res">';
       for (const m of twoForce) h += row(m.e.label ? `S_{${m.e.label}}` : `S (${TM.memberName(doc, m.e)})`, m.N[0], u.F, m.N[0] > 1e-9 ? 'Zug' : m.N[0] < -1e-9 ? 'Druck' : 'Nullstab');
+      h += '</table>';
+    }
+    if (res.pulleys.length) {
+      h += '<h4>Rollen und Trommeln</h4><table class="res">';
+      res.pulleys.forEach((pq, i) => {
+        const name = pq.node.label || `Rolle ${i + 1}`;
+        h += `<tr><td>${rh(name)}</td><td class="v">α = ${TM.fmtNum(pq.alpha, 1)}°</td><td class="h">${pq.K !== 1 ? `e<sup>μα</sup> = ${TM.fmtNum(pq.K, 3)}` : 'reibungsfrei'}</td></tr>`;
+        h += pq.K !== 1 ? row('S_{groß}', pq.Shi, u.F) + row('S_{klein}', pq.Slo, u.F) : row('S_{1}', pq.Shi, u.F) + row('S_{2}', pq.Slo, u.F);
+      });
       h += '</table>';
     }
     const hinges = doc.nodes.filter((n) => n.hinge && M.elementsAt(doc, n.id).filter((e) => e.type === 'beam').length >= 2);
@@ -1569,8 +1705,7 @@
       else u = V.norm(V.sub(B, A));
       M.setDistance(doc, A.id, B.id, u, v, ed.follow);
     } else if (q.kind === 'angle') {
-      const g = TM.angleGeom(d, M.node(doc, d.v), d.a ? M.node(doc, d.a) : null, M.node(doc, d.b));
-      M.rotateAbout(doc, d.v, d.b, (Math.sign(g.sweep) || 1) * v - g.sweep, ed.follow, d.a);
+      setAngleDim(doc, d, v);
     } else if (q.kind === 'fangle') {
       const dd = V.dir(d.angle);
       const sx = Math.sign(dd.x) || 1, sy = Math.sign(dd.y) || -1;

@@ -141,6 +141,8 @@ window.TM = window.TM || {};
     for (const l of doc.loads) if (l.node === remId) l.node = keepId;
     for (const d of doc.dims) for (const k of ['a', 'b', 'v']) if (d[k] === remId) d[k] = keepId;
     keep.hinge = keep.hinge || rem.hinge;
+    if (!keep.joint && rem.joint) { keep.joint = rem.joint; keep.jangle = rem.jangle; }
+    if (!keep.pulley && rem.pulley) keep.pulley = rem.pulley;
     if (!keep.label && rem.label) { keep.label = rem.label; keep.lx = rem.lx; keep.ly = rem.ly; }
     doc.nodes = doc.nodes.filter((n) => n.id !== remId);
     M.cleanup(doc);
@@ -166,9 +168,11 @@ window.TM = window.TM || {};
     const eid = new Set(doc.elements.map((e) => e.id));
     doc.supports = doc.supports.filter((s) => nid.has(s.node));
     doc.loads = doc.loads.filter((l) => (l.type === 'lineload' ? eid.has(l.el) : nid.has(l.node)));
+    const lid = new Set(doc.loads.map((l) => l.id));
     doc.dims = doc.dims.filter((d) =>
       d.type === 'angle'
-        ? nid.has(d.v) && nid.has(d.b) && (d.a == null || nid.has(d.a)) && d.v !== d.b
+        ? nid.has(d.v) && (d.fb ? lid.has(d.fb) : nid.has(d.b) && d.v !== d.b) &&
+          (d.fa ? lid.has(d.fa) : d.a == null || nid.has(d.a))
         : nid.has(d.a) && nid.has(d.b) && d.a !== d.b
     );
     const used = new Set();
@@ -176,6 +180,7 @@ window.TM = window.TM || {};
     doc.supports.forEach((s) => used.add(s.node));
     doc.loads.forEach((l) => l.node && used.add(l.node));
     doc.dims.forEach((d) => ['a', 'b', 'v'].forEach((k) => d[k] && used.add(d[k])));
+    doc.nodes.forEach((n) => n.pulley && used.add(n.id));
     doc.nodes = doc.nodes.filter((n) => used.has(n.id));
   };
 
@@ -183,6 +188,8 @@ window.TM = window.TM || {};
   M.dissolveNode = (doc, id) => {
     const els = M.elementsAt(doc, id);
     if (els.length !== 2 || els[0].type !== els[1].type) return 'Der Knoten verbindet nicht genau zwei gleichartige Elemente.';
+    const nd = M.node(doc, id);
+    if (nd.joint || nd.pulley) return 'Am Knoten sitzt eine Verbindung oder Rolle.';
     if (doc.supports.some((s) => s.node === id) || doc.loads.some((l) => l.node === id) ||
         doc.dims.some((d) => d.a === id || d.b === id || d.v === id))
       return 'Am Knoten hängen noch Lager, Lasten oder Maße.';
@@ -268,12 +275,67 @@ window.TM = window.TM || {};
     return { a, b };
   };
 
+  /** Verbindungsart eines Knotens: rigid | pin | sleeve | sleevepin | parallel. */
+  M.jointType = (n) => (n.hinge ? 'pin' : n.joint || 'rigid');
+  M.setJoint = (doc, n, type) => {
+    n.hinge = type === 'pin';
+    n.joint = type === 'sleeve' || type === 'sleevepin' || type === 'parallel' ? type : null;
+    if (n.joint && n.jangle == null) {
+      const e = M.elementsAt(doc, n.id)[0];
+      n.jangle = e ? Math.round(V.ang(V.sub(M.node(doc, M.other(e, n.id)), n)) * 1e6) / 1e6 : 0;
+    }
+  };
+
+  /**
+   * Seilführung über Rollen: wirksamer Endpunkt (Tangentenpunkt) je Seilende
+   * und Umschlingungswinkel je Rolle.
+   */
+  M.pulleyGeom = (doc) => {
+    const nodes = new Map(doc.nodes.map((n) => [n.id, n]));
+    const pt = new Map();
+    const pulleys = new Map();
+    const P = doc.nodes.filter((n) => n.pulley);
+    if (!P.length) return { pt, pulleys };
+    const endPt = (e, k) => pt.get(e.id + ':' + k) || nodes.get(k === 1 ? e.n1 : e.n2);
+    for (let it = 0; it < 4; it++) {
+      for (const C of P) {
+        const r = +C.pulley.r || 0.4;
+        const ropes = doc.elements.filter((e) => e.type === 'rope' && (e.n1 === C.id || e.n2 === C.id)).map((e) => {
+          const k = e.n1 === C.id ? 1 : 2;
+          return { e, k, O: endPt(e, k === 1 ? 2 : 1) };
+        });
+        let sum = { x: 0, y: 0 };
+        for (const q of ropes) sum = V.add(sum, V.norm(V.sub(q.O, C)));
+        const cdir = V.len(sum) < 1e-9 ? { x: 0, y: 1 } : V.mul(V.norm(sum), -1);
+        for (const q of ropes) {
+          const v = V.sub(q.O, C), dd = V.len(v);
+          if (dd <= r) { q.T = { x: C.x, y: C.y }; continue; }
+          const th = (Math.acos(r / dd) * 180) / Math.PI, ph = V.ang(v);
+          const T1 = V.add(C, V.mul(V.dir(ph + th), r)), T2 = V.add(C, V.mul(V.dir(ph - th), r));
+          q.T = V.dot(V.sub(T1, C), cdir) >= V.dot(V.sub(T2, C), cdir) ? T1 : T2;
+          pt.set(q.e.id + ':' + q.k, q.T);
+        }
+        const info = { C, r, ropes, cdir, alpha: 0 };
+        if (ropes.length === 2) {
+          const a1 = V.ang(V.sub(ropes[0].T, C)), a2 = V.ang(V.sub(ropes[1].T, C)), ac = V.ang(cdir);
+          const mod = (x) => ((x % 360) + 360) % 360;
+          const dl = mod(a2 - a1);
+          const inside = mod(ac - a1) < dl;
+          info.alpha = inside ? dl : 360 - dl;
+          info.a1 = a1; info.ccw = inside;
+        }
+        pulleys.set(C.id, info);
+      }
+    }
+    return { pt, pulleys };
+  };
+
   /** Ergänzt fehlende Felder (z. B. bei älteren Dateien). */
   M.normalize = (doc) => {
     const base = TM.newDoc();
     for (const k of Object.keys(base)) if (doc[k] == null) doc[k] = base[k];
     doc.meta = Object.assign(base.meta, doc.meta || {});
-    for (const l of doc.loads) if (l.value == null) l.value = l.type === 'lineload' ? 5 : 10;
+    for (const l of doc.loads) if (l.value == null) l.value = l.type === 'lineload' ? 5 : l.type === 'mass' ? 50 : 10;
     M.cleanup(doc);
     return doc;
   };

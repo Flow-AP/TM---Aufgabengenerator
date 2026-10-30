@@ -12,9 +12,14 @@
   };
   TM.loadUnit = (doc, l) => {
     const u = TM.units(doc);
-    return l.type === 'force' ? u.F : l.type === 'moment' ? u.M : u.q;
+    return l.type === 'force' ? u.F : l.type === 'moment' ? u.M : l.type === 'mass' ? 'kg' : u.q;
   };
-  TM.defaultValue = (l) => (l.type === 'lineload' ? 5 : 10);
+  TM.defaultValue = (l) => (l.type === 'lineload' ? 5 : l.type === 'mass' ? 50 : 10);
+  /** Erdbeschleunigung in Krafteinheit pro kg. */
+  TM.gUnit = (doc) => {
+    const f = { N: 1, kN: 1e-3, MN: 1e-6, daN: 0.1 }[doc.meta.funit || 'kN'];
+    return 9.81 * (f == null ? 1e-3 : f);
+  };
 
   /** "2F" → {coef:2, sym:"F"}, "l/2" → {coef:0.5, sym:"l"}, "F_1" → {coef:1, sym:"F_1"}. */
   TM.parseSym = function (label) {
@@ -38,13 +43,14 @@
     const u = TM.units(doc);
     const q = [];
     for (const l of doc.loads) {
-      q.push({ kind: 'load', obj: l, label: l.label, value: +l.value || 0, unit: TM.loadUnit(doc, l) });
+      if (!l.unknown) q.push({ kind: 'load', obj: l, label: l.label, value: +l.value || 0, unit: TM.loadUnit(doc, l) });
       if (l.type === 'force' && (l.angRef === 'h' || l.angRef === 'v') && l.angLabel)
         q.push({ kind: 'fangle', obj: l, label: l.angLabel, value: TM.forceRefAngle(l), unit: '°' });
     }
     for (const d of doc.dims) {
       if (d.type === 'angle') {
-        const g = TM.angleGeom(d, M.node(doc, d.v), d.a ? M.node(doc, d.a) : null, M.node(doc, d.b));
+        const g = TM.angleGeom(doc, d);
+        if (!g.Vn) continue;
         q.push({ kind: 'angle', obj: d, label: d.label, value: g.val, unit: '°' });
       } else {
         const g = TM.dimGeom(d, M.node(doc, d.a), M.node(doc, d.b));
@@ -93,6 +99,7 @@
       return v;
     };
     for (const l of doc.loads) {
+      if (l.unknown) continue;
       const p = TM.parseSym(l.label);
       const cur = (+l.value || TM.defaultValue(l)) / (p ? p.coef : 1);
       l.value = TM.clean(pick(p && 'L:' + p.sym, cur, 'load') * (p ? p.coef : 1));

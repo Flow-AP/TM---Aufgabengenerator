@@ -179,11 +179,12 @@
     else { tail = V.add(p, V.mul(d, trim)); tip = V.add(tail, V.mul(d, len)); }
     let s = arrow(tail, tip, { w: 2.2, hl: 12, hw: 4.5 });
     const lab = ctx.lab(L);
+    let lbl = '';
     if (lab.t) {
       const end = tipMode ? tail : tip, out = tipMode ? V.mul(d, -1) : d;
       const w = TM.textWidth(lab.t);
       const dist = 7 + Math.abs(out.x) * w / 2 + Math.abs(out.y) * STY.fs * 0.5;
-      s += textSVG(lab.t, end.x + out.x * dist, end.y + out.y * dist, { italic: lab.it });
+      lbl = textSVG(lab.t, end.x + out.x * dist + (L.lox || 0), end.y + out.y * dist + (L.loy || 0), { suffix: lab.suf, italic: lab.it });
     }
     if (L.angRef === 'h' || L.angRef === 'v') {
       const center = tipMode ? tip : tail;
@@ -198,7 +199,7 @@
       const ad = r + 7 + Math.abs(mid.x) * aw / 2 + Math.abs(mid.y) * STY.fs * 0.4;
       if (al) s += textSVG(al, center.x + mid.x * ad, center.y + mid.y * ad, { size: STY.fs * 0.9 });
     }
-    return { svg: s, tail, tip };
+    return { svg: s, tail, tip, lbl };
   }
 
   /** Bogen um center von Richtung d1 nach d2 (Bildschirmrichtungen). */
@@ -226,22 +227,67 @@
     const dir = V.norm(V.add(sd(tw), V.mul(V.norm(V.sub(tip, b)), 1)));
     s += head(tip, dir, 10, 4);
     const lab = ctx ? ctx.lab(L) : { t: L.label, it: true };
+    let lbl = '';
     if (lab.t) {
       const la = gap + 135, w = TM.textWidth(lab.t);
       const dv = V.dir(la);
       const dist = r + 8 + Math.abs(dv.x) * w / 2 + Math.abs(dv.y) * STY.fs * 0.45;
-      s += textSVG(lab.t, p.x + dv.x * dist, p.y - dv.y * dist, { italic: lab.it });
+      lbl = textSVG(lab.t, p.x + dv.x * dist + (L.lox || 0), p.y - dv.y * dist + (L.loy || 0), { suffix: lab.suf, italic: lab.it });
     }
     const hit = `<circle class="hit" cx="${c(p.x)}" cy="${c(p.y)}" r="${r}" fill="none"/>`;
-    return { svg: s, hit };
+    return { svg: s + (ctx ? '' : lbl), hit, lbl: ctx ? lbl : '' };
   }
 
   TM.momentSVG = (L, n, ctx) => momentSVG(L, n, ctx);
 
+  /** Symbole für Schiebehülse, drehbare Schiebehülse und Parallelführung (Querkraftgelenk). */
+  function jointSVG(n, bw) {
+    const p = P(n), t = sd(V.dir(n.jangle || 0)), q = { x: -t.y, y: t.x };
+    const at = (a, b) => V.add(p, V.add(V.mul(t, a), V.mul(q, b)));
+    const poly = (pts, extra) => `<polygon points="${pts.map((k) => `${c(k.x)},${c(k.y)}`).join(' ')}" ${extra}/>`;
+    const st = `stroke="${ink}" stroke-width="1.7" stroke-linejoin="round"`;
+    if (n.joint === 'sleeve' || n.joint === 'sleevepin') {
+      const L = 14, H = bw / 2 + 4.5;
+      let s = poly([at(-L, -H), at(L, -H), at(L, H), at(-L, H)], `fill="none" ${st}`);
+      if (n.joint === 'sleevepin') s += `<circle cx="${c(p.x)}" cy="${c(p.y)}" r="${STY.hinge}" fill="#fff" stroke="${ink}" stroke-width="1.5"/>`;
+      return s;
+    }
+    if (n.joint === 'parallel') {
+      const g = 6, H = bw / 2 + 8, o = bw / 2 + 3.5;
+      let s = poly([at(-g + 1, -bw / 2 - 1), at(g - 1, -bw / 2 - 1), at(g - 1, bw / 2 + 1), at(-g + 1, bw / 2 + 1)], 'fill="#fff" stroke="none"');
+      s += line(at(-g, -H), at(-g, H), 2.2) + line(at(g, -H), at(g, H), 2.2);
+      for (const k of [-o - 2, o + 2]) s += line(at(-g, k), at(g, k), 1.3);
+      return s;
+    }
+    return '';
+  }
+
+  function massSVG(L, n, ctx) {
+    const p = P(n), w = L.w || 36, h = L.hgt || 28;
+    const top = L.pos === 'top' || (L.pos == null && ctx.beamAt.has(L.node));
+    const y0 = top ? p.y - (ctx.beamAt.has(L.node) ? ctx.bw / 2 : 0) - h : p.y;
+    let s = `<rect x="${c(p.x - w / 2)}" y="${c(y0)}" width="${w}" height="${h}" fill="#eeeeee" stroke="${ink}" stroke-width="1.6"/>`;
+    let hh = '';
+    for (let k = 6; k < w + h; k += 7) {
+      const x1 = Math.max(0, k - h), y1 = Math.min(h, k), x2 = Math.min(w, k), y2 = Math.max(0, k - w);
+      hh += `M${c(p.x - w / 2 + x1)} ${c(y0 + y1)}L${c(p.x - w / 2 + x2)} ${c(y0 + y2)}`;
+    }
+    s += `<path d="${hh}" stroke="${ink}" stroke-width="0.5" stroke-opacity="0.35" fill="none"/>`;
+    if (L.showG) {
+      const tail = { x: p.x, y: y0 + h / 2 }, tip = { x: p.x, y: y0 + h + 34 };
+      s += arrow(tail, tip, { w: 2, hl: 11, hw: 4.2 });
+      if (L.gLabel) s += textSVG(L.gLabel, tip.x + 9, tip.y - 12, { anchor: 'start' });
+    }
+    const lab = ctx.lab(L);
+    const lbl = lab.t ? textSVG(lab.t, p.x + (L.lox || 0), y0 + h / 2 + (L.loy || 0), { suffix: lab.suf, italic: lab.it, size: STY.fs * 0.95 }) : '';
+    const hit = `<rect class="hitr" x="${c(p.x - w / 2)}" y="${c(y0)}" width="${w}" height="${h}"/>`;
+    return { svg: s, lbl, hit };
+  }
+
   function lineloadSVG(L, el, A, B, ctx) {
     const a = P(A), b = P(B);
     const Lpx = V.dist(a, b);
-    if (Lpx < 1) return { svg: '', hit: '' };
+    if (Lpx < 1) return { svg: '', hit: '', lbl: '' };
     const sideSg = L.side === -1 ? -1 : 1;
     const topW = L.dir === 'vert' ? { x: 0, y: sideSg } : V.mul(TM.upNormal(A, B), sideSg);
     const ts = sd(topW);
@@ -263,14 +309,15 @@
     }
     s += line(top(0), top(1), 1.2);
     const lab = ctx.lab(L);
+    let lbl = '';
     if (lab.t) {
       const tl = Math.abs(qa - qb) < 1e-9 ? 0.5 : Math.abs(qb) > Math.abs(qa) ? 0.88 : 0.12;
       const q = top(tl), w = TM.textWidth(lab.t);
       const dist = 6 + Math.abs(ts.x) * w / 2 + Math.abs(ts.y) * STY.fs * 0.5;
-      s += textSVG(lab.t, q.x + ts.x * dist, q.y + ts.y * dist, { italic: lab.it });
+      lbl = textSVG(lab.t, q.x + ts.x * dist + (L.lox || 0), q.y + ts.y * dist + (L.loy || 0), { suffix: lab.suf, italic: lab.it });
     }
     const pts = [base(0), base(1), top(1), top(0)].map((q) => `${c(q.x)},${c(q.y)}`).join(' ');
-    return { svg: s, hit: `<polygon class="hitr" points="${pts}"/>` };
+    return { svg: s, lbl, hit: `<polygon class="hitr" points="${pts}"/>` };
   }
 
   // ---------------------------------------------------------------- Maße
@@ -311,14 +358,14 @@
         s += line(V.sub(d1, V.mul(e, 14)), V.add(d2, V.mul(e, 14)), 0.9) + head(d1, e, 8, 2.6) + head(d2, V.mul(e, -1), 8, 2.6);
       }
       const txt = (!o.values && d.label) || TM.fmtNum(g.val) + (unit ? ' ' + unit : '');
-      const sg = (d.off || 0) >= 0 ? 1 : -1;
-      const ns = V.mul(sd(g.n), sg);
       let ang = (Math.atan2(e.y, e.x) * 180) / Math.PI;
       if (ang > 90.01) ang -= 180;
       if (ang <= -90.01) ang += 180;
       if (Math.abs(ang - 90) < 0.01) ang = -90;
       const mid = V.lerp(d1, d2, 0.5);
-      const tp = V.add(mid, V.mul(ns, STY.fs * 0.55 + 1));
+      // Text immer "oberhalb" der Maßlinie (bezogen auf die Leserichtung)
+      const ra = (ang * Math.PI) / 180, up = { x: Math.sin(ra), y: -Math.cos(ra) };
+      const tp = V.add(mid, V.mul(up, STY.fs * 0.55 + 1));
       s += textSVG(txt, tp.x, tp.y, { rot: ang });
       hit = `<line class="hit" x1="${c(d1.x)}" y1="${c(d1.y)}" x2="${c(d2.x)}" y2="${c(d2.y)}"/>` +
         `<circle class="hitr" cx="${c(tp.x)}" cy="${c(tp.y)}" r="10"/>`;
@@ -326,21 +373,38 @@
     return o.edit ? s + hit : s;
   };
 
-  TM.angleGeom = function (d, Vn, An, Bn) {
-    const dirA = An ? V.norm(V.sub(An, Vn)) : V.dir(d.aRef || 0);
-    const dirB = V.norm(V.sub(Bn, Vn));
+  /** Richtung eines Winkelschenkels: Knoten, Bezugsachse (nur a) oder Kraft (Pfeilschaft). */
+  function armDir(doc, d, which, Vn) {
+    const fid = d['f' + which];
+    if (fid) {
+      const L = doc.loads.find((l) => l.id === fid);
+      if (!L) return null;
+      const dw = V.dir(L.angle);
+      return L.tip !== false ? V.mul(dw, -1) : dw;
+    }
+    const nid = d[which];
+    if (nid) {
+      const n = doc.nodes.find((k) => k.id === nid);
+      return n ? V.norm(V.sub(n, Vn)) : null;
+    }
+    return which === 'a' ? V.dir(d.aRef || 0) : null;
+  }
+
+  TM.angleGeom = function (doc, d) {
+    const Vn = doc.nodes.find((k) => k.id === d.v);
+    const dirA = armDir(doc, d, 'a', Vn) || { x: 1, y: 0 }, dirB = armDir(doc, d, 'b', Vn) || { x: 1, y: 0 };
     const s = (Math.atan2(V.cross(dirA, dirB), V.dot(dirA, dirB)) * 180) / Math.PI;
     let sweep = s;
     if (d.flip) sweep = s > 0 ? s - 360 : s + 360;
-    return { dirA, dirB, sweep, val: Math.abs(sweep) };
+    return { Vn, dirA, dirB, sweep, val: Math.abs(sweep), refA: !d.a && !d.fa };
   };
 
-  TM.angleSVG = function (d, Vn, An, Bn, o = {}) {
-    const g = TM.angleGeom(d, Vn, An, Bn);
-    const cc = P(Vn), r = d.r || 30;
+  TM.angleSVG = function (doc, d, o = {}) {
+    const g = TM.angleGeom(doc, d);
+    const cc = P(g.Vn), r = d.r || 30;
     const da = sd(g.dirA), db = sd(g.dirB);
     let s = '';
-    if (!An) s += line(cc, V.add(cc, V.mul(da, r + 14)), 0.9, ' stroke-dasharray="4 3"');
+    if (g.refA) s += line(cc, V.add(cc, V.mul(da, r + 14)), 0.9, ' stroke-dasharray="4 3"');
     const p1 = V.add(cc, V.mul(da, r)), p2 = V.add(cc, V.mul(db, r));
     const large = Math.abs(g.sweep) > 180 ? 1 : 0, sweepFlag = g.sweep > 0 ? 0 : 1;
     const path = `M${c(p1.x)} ${c(p1.y)}A${r} ${r} 0 ${large} ${sweepFlag} ${c(p2.x)} ${c(p2.y)}`;
@@ -376,16 +440,25 @@
     }
     const values = !!doc.meta.showValues;
     const lab = (L) => {
+      if (L.unknown) {
+        const v = o.solved && o.solved.get(L.id);
+        if (v != null) return { t: (L.label || '') + ' = ', suf: `${TM.fmtNum(v)} ${TM.loadUnit(doc, L)}`, it: true };
+        return { t: values ? (L.label || '') + ' = ?' : L.label, it: true };
+      }
       if (!values) return { t: L.label, it: true };
       const u = TM.units(doc);
-      const unit = L.type === 'force' ? u.F : L.type === 'moment' ? u.M : u.q;
+
+      const unit = L.type === 'force' ? u.F : L.type === 'moment' ? u.M : L.type === 'mass' ? 'kg' : u.q;
       return { t: `${TM.fmtNum(+L.value || 0)} ${unit}`, it: false };
     };
     const ctx = { beamAt, pinAt, bw, values, lab };
+    const pg = TM.model.pulleyGeom(doc);
     const hw = c(14 / z);
     const isSel = (k, id) => sel && sel.kind === k && sel.id === id;
     const G = (kind, id, inner) =>
       edit ? `<g class="obj${isSel(kind, id) ? ' sel' : ''}" data-kind="${kind}" data-id="${id}">${inner}</g>` : `<g>${inner}</g>`;
+    const GL = (id, inner) =>
+      edit ? `<g class="obj${isSel('load', id) ? ' sel' : ''}" data-kind="llabel" data-id="${id}" style="cursor:move">${inner}</g>` : inner;
     const hitLine = (a, b) => (edit ? `<line class="hit" stroke-width="${hw}" x1="${c(a.x)}" y1="${c(a.y)}" x2="${c(b.x)}" y2="${c(b.y)}"/>` : '');
 
     let out = '';
@@ -396,7 +469,7 @@
       const el = doc.elements.find((e) => e.id === L.el);
       if (!el) continue;
       const r = lineloadSVG(L, el, nodes.get(el.n1), nodes.get(el.n2), ctx);
-      out += G('load', L.id, r.svg + (edit ? r.hit : ''));
+      out += G('load', L.id, r.svg + (edit ? r.hit : '')) + (r.lbl ? GL(L.id, r.lbl) : '');
     }
 
     // Lager
@@ -407,7 +480,12 @@
       const off = s.type === 'clamp' || s.type === 'schiebe' ? (beamAt.has(n.id) ? bw / 2 : 1.5) : 0;
       const rot = -(s.angle ?? -90) - 90;
       const hit = edit ? `<rect class="hitr" x="-18" y="-2" width="36" height="${off + 28}"/>` : '';
-      out += G('support', s.id, `<g transform="translate(${c(p.x)} ${c(p.y)}) rotate(${c(rot)})">${TM.supportShape(s.type, off)}${hit}</g>`);
+      let shape = TM.supportShape(s.type, off);
+      if (n.pulley) {
+        const rp = c((+n.pulley.r || 0.4) * S);
+        shape = `<line x1="0" y1="0" x2="0" y2="${rp}" stroke="${ink}" stroke-width="2.4"/><g transform="translate(0 ${rp})">${TM.supportShape(s.type, 0)}</g>`;
+      }
+      out += G('support', s.id, `<g transform="translate(${c(p.x)} ${c(p.y)}) rotate(${c(rot)})">${shape}${hit}</g>`);
     }
 
     // Balken: Außenkontur, dann Innenfüllung (ergibt verschmolzene Stöße).
@@ -436,12 +514,37 @@
       out += `<g pointer-events="none"><path d="${beams.map((e) => segD(e, STY.bwi / 2).d).join('')}" stroke="#fff" stroke-width="${STY.bwi}" fill="none"/>${discs(STY.bwi / 2, '#fff')}</g>`;
     }
 
+    // Verbindungen (Schiebehülsen, Parallelführung)
+    for (const n of doc.nodes) {
+      if (!n.joint) continue;
+      out += `<g pointer-events="none">${jointSVG(n, bw)}</g>`;
+    }
+
+    // Rollen und Trommeln
+    for (const [id, info] of pg.pulleys) {
+      const n = nodes.get(id), p = P(n), R = info.r * S;
+      const fixed = n.pulley.mode === 'friction';
+      let d = `<circle cx="${c(p.x)}" cy="${c(p.y)}" r="${c(R)}" fill="${fixed ? '#e4e4e4' : '#fff'}" stroke="${ink}" stroke-width="1.8"/>`;
+      if (fixed) d += `<circle cx="${c(p.x)}" cy="${c(p.y)}" r="${c(R * 0.55)}" fill="none" stroke="${ink}" stroke-width="0.8"/>`;
+      d += `<circle cx="${c(p.x)}" cy="${c(p.y)}" r="2.6" fill="#fff" stroke="${ink}" stroke-width="1.3"/>`;
+      if (info.ropes.length === 2) {
+        const T1 = P(info.ropes[0].T), T2 = P(info.ropes[1].T);
+        d += `<path d="M${c(T1.x)} ${c(T1.y)}A${c(R)} ${c(R)} 0 ${info.alpha > 180 ? 1 : 0} ${info.ccw ? 0 : 1} ${c(T2.x)} ${c(T2.y)}" stroke="${ink}" stroke-width="${STY.rope + 0.6}" fill="none"/>`;
+      }
+      out += edit ? `<g class="obj${isSel('node', id) ? ' sel' : ''}" data-kind="node" data-id="${id}">${d}</g>` : d;
+    }
+
     // Stäbe, Seile, Federn
     for (const e of doc.elements) {
       if (e.type === 'beam') continue;
       let { a, b } = segD(e);
       let shape;
-      if (e.type === 'rope') {
+      const ta0 = pg.pt.get(e.id + ':1'), tb0 = pg.pt.get(e.id + ':2');
+      if (e.type === 'rope' && (ta0 || tb0)) {
+        const a2 = ta0 ? P(ta0) : a, b2 = tb0 ? P(tb0) : b;
+        shape = line(a2, b2, STY.rope, ' stroke-linecap="round"');
+        a = a2; b = b2;
+      } else if (e.type === 'rope') {
         const u = V.norm(V.sub(b, a));
         const ta = beamAt.has(e.n1) && !pinAt.has(e.n1) ? bw / 2 : 0;
         const tb = beamAt.has(e.n2) && !pinAt.has(e.n2) ? bw / 2 : 0;
@@ -478,18 +581,20 @@
       if (!n) continue;
       if (L.type === 'force') {
         const r = forceSVG(L, n, ctx);
-        out += G('load', L.id, r.svg + hitLine(r.tail, r.tip));
+        out += G('load', L.id, r.svg + hitLine(r.tail, r.tip)) + (r.lbl ? GL(L.id, r.lbl) : '');
       } else if (L.type === 'moment') {
         const r = momentSVG(L, n, ctx);
-        out += G('load', L.id, r.svg + (edit ? r.hit.replace('class="hit"', `class="hit" stroke-width="${hw}"`) : ''));
+        out += G('load', L.id, r.svg + (edit ? r.hit.replace('class="hit"', `class="hit" stroke-width="${hw}"`) : '')) + (r.lbl ? GL(L.id, r.lbl) : '');
+      } else if (L.type === 'mass') {
+        const r = massSVG(L, n, ctx, doc);
+        out += G('load', L.id, r.svg + (edit ? r.hit : '')) + (r.lbl ? GL(L.id, r.lbl) : '');
       }
     }
 
     // Maße
     for (const d of doc.dims) {
       if (d.type === 'angle') {
-        const Vn = nodes.get(d.v), Bn = nodes.get(d.b), An = d.a ? nodes.get(d.a) : null;
-        out += G('dim', d.id, TM.angleSVG(d, Vn, An, Bn, { edit, values }));
+        out += G('dim', d.id, TM.angleSVG(doc, d, { edit, values }));
       } else {
         out += G('dim', d.id, TM.dimSVG(d, nodes.get(d.a), nodes.get(d.b), values ? TM.units(doc).L : doc.meta.unit, { edit, values }));
       }

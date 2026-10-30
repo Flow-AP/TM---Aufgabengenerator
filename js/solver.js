@@ -73,32 +73,39 @@
     return { rank: r, x, inconsistent };
   }
 
+  const JOINT_DOF = { sleeve: 2, sleevepin: 1, parallel: 2 };
+
   /** Klassisches Abzählkriterium n = a + z − 3p (Stäbe/Seile als Körper). */
-  function countCriterion(doc, active) {
+  function countCriterion(doc, active, nUnknownLoads) {
     const parent = new Map();
     const find = (k) => { while (parent.get(k) !== k) { parent.set(k, parent.get(parent.get(k))); k = parent.get(k); } return k; };
     const union = (a, b) => parent.set(find(a), find(b));
     for (const e of doc.elements) parent.set(e.id, e.id);
     for (const n of doc.nodes) {
       if (n.hinge) continue;
-      const beams = M.elementsAt(doc, n.id).filter((e) => e.type === 'beam');
+      const els = M.elementsAt(doc, n.id);
+      // Bei Verbindungen (Schiebehülse …) ist das erste Element von den übrigen getrennt
+      const beams = els.filter((e, i) => e.type === 'beam' && !(n.joint && i === 0));
       for (let i = 1; i < beams.length; i++) union(beams[0].id, beams[i].id);
     }
     const bodies = new Set(doc.elements.map((e) => find(e.id)));
-    let z = 0, a = 0;
+    let z = 0, a = 0, p = bodies.size;
     for (const n of doc.nodes) {
       if (!active.has(n.id)) continue;
       const els = M.elementsAt(doc, n.id);
-      const k = new Set(els.map((e) => find(e.id))).size;
-      if (k > 1) z += 2 * (k - 1);
+      let k = new Set(els.map((e) => find(e.id))).size;
+      if (n.joint && els.length >= 2) { z += JOINT_DOF[n.joint] + 2 * Math.max(0, k - 2); }
+      else {
+        if (n.pulley && n.pulley.mode !== 'friction') { k += 1; p += 1; }
+        if (k > 1) z += 2 * (k - 1);
+      }
       const s = M.supportAt(doc, n.id);
       if (s) {
-        const rigid = els.some((e) => e.type === 'beam' && !n.hinge);
+        const rigid = els.some((e) => e.type === 'beam' && !n.hinge) || (n.pulley && n.pulley.mode === 'friction');
         a += supportComponents(s).filter((c) => c.c !== 'm' || rigid).length;
       }
     }
-    const p = bodies.size;
-    return { a, z, p, n: a + z - 3 * p };
+    return { a, z, p, u: nUnknownLoads, n: a + z - 3 * p + nUnknownLoads };
   }
 
   TM.solve = function (doc) {
@@ -106,18 +113,18 @@
     const warnings = [];
     const unk = [];
     const U = (d) => (unk.push(d), unk.length - 1);
-    const ends = new Map();       // `${e.id}:${k}` → {fx, fy, m, node}
+    const pg = M.pulleyGeom(doc);
+    const ends = new Map();       // `${e.id}:${k}` → {fx, fy, m, node, P}
     const endsAt = new Map();     // node → [end]
-    const rigidAt = new Map();
     for (const e of doc.elements) {
       for (const k of [1, 2]) {
         const nid = k === 1 ? e.n1 : e.n2, n = nodes.get(nid);
         const rigid = e.type === 'beam' && !n.hinge;
-        const o = { e, k, node: nid, fx: U({ t: 'f' }), fy: U({ t: 'f' }), m: rigid ? U({ t: 'm' }) : -1 };
+        const P = pg.pt.get(e.id + ':' + k) || { x: n.x, y: n.y };
+        const o = { e, k, node: nid, P, fx: U({ t: 'f' }), fy: U({ t: 'f' }), m: rigid ? U({ t: 'm' }) : -1 };
         ends.set(e.id + ':' + k, o);
         if (!endsAt.has(nid)) endsAt.set(nid, []);
         endsAt.get(nid).push(o);
-        if (rigid) rigidAt.set(nid, (rigidAt.get(nid) || 0) + 1);
       }
     }
     const active = new Set(endsAt.keys());
@@ -128,6 +135,24 @@
       sup.push({ s, comps });
     }
     if (!doc.elements.length) return { empty: true };
+    // gesuchte Lasten als Unbekannte
+    const unknownLoads = [];
+    for (const l of doc.loads) {
+      if (!l.unknown || l.type === 'lineload' || !active.has(l.node)) continue;
+      unknownLoads.push({ l, i: U({ t: 'load' }) });
+    }
+    // Verbindungen mit Freigaben: Knoten in zwei Seiten teilen
+    const jointU = new Map();
+    for (const nd of doc.nodes) {
+      if (!nd.joint || !active.has(nd.id) || endsAt.get(nd.id).length < 2) continue;
+      const t = V.dir(nd.jangle || 0), q = V.perp(t);
+      const comps = [];
+      if (nd.joint === 'sleeve' || nd.joint === 'sleevepin') comps.push({ f: q });
+      if (nd.joint === 'parallel') comps.push({ f: t });
+      if (nd.joint !== 'sleevepin') comps.push({ m: 1 });
+      jointU.set(nd.id, comps.map((c) => ({ ...c, i: U({ t: 'j' }) })));
+    }
+    const g9 = TM.gUnit ? TM.gUnit(doc) : 9.81e-3;
 
     const n = unk.length;
     const rows = [], rhs = [];
@@ -141,16 +166,17 @@
     }
     for (const e of doc.elements) {
       const A = nodes.get(e.n1), B = nodes.get(e.n2);
-      const d = V.sub(B, A), Lx = V.len(d), u = V.norm(d);
+      const e1 = ends.get(e.id + ':1'), e2 = ends.get(e.id + ':2');
+      const Lx = V.dist(A, B), u = V.norm(V.sub(B, A));
       let R = { x: 0, y: 0 }, M1 = 0;
       for (const L of lineloadsOf.get(e.id) || []) {
         const dv = TM.lineloadDir(L, A, B), q = (+L.value || 0) / qNorm(L), qa = +L.qa || 0, qb = +L.qb || 0;
         const res = (q * Lx * (qa + qb)) / 2;
         const mom = (q * Lx * Lx * (qa + 2 * qb)) / 6;
         R = V.add(R, V.mul(dv, res));
-        M1 += V.cross(u, dv) * mom;
+        M1 += V.cross(u, dv) * mom + V.cross(V.sub(A, e1.P), V.mul(dv, res));
       }
-      const e1 = ends.get(e.id + ':1'), e2 = ends.get(e.id + ':2');
+      const d = V.sub(e2.P, e1.P);
       let r = newRow(); r[e1.fx] = 1; r[e2.fx] = 1; rows.push(r); rhs.push(-R.x);
       r = newRow(); r[e1.fy] = 1; r[e2.fy] = 1; rows.push(r); rhs.push(-R.y);
       r = newRow();
@@ -161,40 +187,95 @@
     }
 
     // Knotengleichgewicht
+    const pulleyRes = [];
     for (const nd of doc.nodes) {
       const loads = doc.loads.filter((l) => l.node === nd.id);
       if (!active.has(nd.id)) {
-        if (loads.length) warnings.push(`Last an einem Knoten ohne Tragwerk wird ignoriert.`);
+        if (loads.length) warnings.push('Last an einem Knoten ohne Tragwerk wird ignoriert.');
         continue;
       }
       let Fx = 0, Fy = 0, Mz = 0;
+      const ux = newRow(), uy = newRow(), um = newRow(); // Anteile gesuchter Lasten
+      let hasUm = false;
       for (const l of loads) {
-        if (l.type === 'force') { const f = V.mul(V.dir(l.angle), +l.value || 0); Fx += f.x; Fy += f.y; }
-        else if (l.type === 'moment') Mz += (l.ccw !== false ? 1 : -1) * (+l.value || 0);
+        const uk = unknownLoads.find((x) => x.l === l);
+        if (l.type === 'force') {
+          const dd = V.dir(l.angle);
+          if (uk) { ux[uk.i] += dd.x; uy[uk.i] += dd.y; } else { Fx += dd.x * (+l.value || 0); Fy += dd.y * (+l.value || 0); }
+        } else if (l.type === 'moment') {
+          const sg = l.ccw !== false ? 1 : -1;
+          if (uk) { um[uk.i] += sg; hasUm = true; } else Mz += sg * (+l.value || 0);
+        } else if (l.type === 'mass') {
+          if (uk) uy[uk.i] -= g9; else Fy -= g9 * (+l.value || 0);
+        }
       }
       const es = endsAt.get(nd.id);
       const sp = sup.find((x) => x.s.node === nd.id);
-      let rx = newRow(), ry = newRow();
-      for (const o of es) { rx[o.fx] -= 1; ry[o.fy] -= 1; }
-      let hasMsup = false;
-      if (sp) for (const c of sp.comps) {
-        if (c.f) { rx[c.i] += c.f.x; ry[c.i] += c.f.y; } else hasMsup = true;
-      }
-      rows.push(rx); rhs.push(-Fx);
-      rows.push(ry); rhs.push(-Fy);
-      if (rigidAt.get(nd.id) || hasMsup) {
-        const rm = newRow();
-        for (const o of es) if (o.m >= 0) rm[o.m] -= 1;
-        if (sp) for (const c of sp.comps) if (c.m) rm[c.i] += 1;
-        rows.push(rm); rhs.push(-Mz);
-      } else if (Mz) {
-        warnings.push(`Ein Moment greift an einem reinen Gelenkknoten an und kann nicht übertragen werden.`);
+      const jc = jointU.get(nd.id);
+      const groups = jc ? [es.filter((o) => o.e === es[0].e), es.filter((o) => o.e !== es[0].e)] : [es];
+      const pul = nd.pulley && !jc ? pg.pulleys.get(nd.id) : null;
+      groups.forEach((grp, gi) => {
+        const sgn = gi === 0 ? 1 : -1;
+        const rx = gi === 0 ? ux.slice() : newRow(), ry = gi === 0 ? uy.slice() : newRow();
+        for (const o of grp) { rx[o.fx] -= 1; ry[o.fy] -= 1; }
+        let hasMsup = false;
+        if (gi === 0 && sp) for (const c of sp.comps) {
+          if (c.f) { rx[c.i] += c.f.x; ry[c.i] += c.f.y; } else hasMsup = true;
+        }
+        let hasMj = false;
+        if (jc) for (const c of jc) {
+          if (c.f) { rx[c.i] += sgn * c.f.x; ry[c.i] += sgn * c.f.y; } else hasMj = true;
+        }
+        rows.push(rx); rhs.push(gi === 0 ? -Fx : 0);
+        rows.push(ry); rhs.push(gi === 0 ? -Fy : 0);
+        const rigidEnds = grp.some((o) => o.m >= 0);
+        // Moment der Seilkräfte am Rollenumfang um die Achse
+        const ropeMoment = (row) => {
+          for (const o of grp) if (o.e.type === 'rope' && pul) {
+            const rr = V.sub(o.P, nd);
+            row[o.fy] -= rr.x; row[o.fx] += rr.y; // −(r × f)
+          }
+        };
+        const friction = pul && nd.pulley.mode === 'friction';
+        if (pul && !friction && gi === 0) {
+          const rd = newRow();
+          ropeMoment(rd);
+          rows.push(rd); rhs.push(0);
+        }
+        if (rigidEnds || hasMsup || hasMj || friction || (gi === 0 && hasUm)) {
+          const rm = gi === 0 ? um.slice() : newRow();
+          for (const o of grp) if (o.m >= 0) rm[o.m] -= 1;
+          if (gi === 0 && sp) for (const c of sp.comps) if (c.m) rm[c.i] += 1;
+          if (jc) for (const c of jc) if (c.m) rm[c.i] += sgn;
+          if (friction) ropeMoment(rm);
+          rows.push(rm); rhs.push(gi === 0 ? -Mz : 0);
+        } else if (gi === 0 && Mz) {
+          warnings.push('Ein Moment greift an einem reinen Gelenkknoten an und kann nicht übertragen werden.');
+        }
+      });
+      // Seilreibung (Euler-Eytelwein, Grenzfall): S_groß = S_klein · e^(μα)
+      if (pul && pul.ropes.length === 2) {
+        const K = Math.exp((+nd.pulley.mu || 0) * (pul.alpha * Math.PI) / 180);
+        const hi = pul.ropes.find((q) => q.e.id === nd.pulley.heavy) || pul.ropes[0];
+        const lo = pul.ropes.find((q) => q !== hi);
+        const info = { node: nd, alpha: pul.alpha, K: nd.pulley.mode === 'friction' ? K : 1, hi, lo };
+        pulleyRes.push(info);
+        if (nd.pulley.mode === 'friction') {
+          const rf = newRow();
+          const add = (q, f) => {
+            const o = ends.get(q.e.id + ':' + q.k);
+            const w = V.norm(V.sub(o.P, q.O));
+            rf[o.fx] += f * w.x; rf[o.fy] += f * w.y;
+          };
+          add(hi, 1); add(lo, -K);
+          rows.push(rf); rhs.push(0);
+        }
       }
     }
 
     const g = rows.length;
     const sol = gauss(rows, rhs, n);
-    const count = countCriterion(doc, active);
+    const count = countCriterion(doc, active, unknownLoads.length);
     const status = {
       u: n, g, rank: sol.rank, f: n - g,
       kinematic: sol.rank < g,
@@ -203,22 +284,30 @@
       count,
     };
     status.determinate = !status.kinematic && !status.indeterminate;
-    status.degree = n - sol.rank; // Grad der statischen Unbestimmtheit (bei vollem Zeilenrang)
-    status.mobility = g - sol.rank; // Freiheitsgrade des Mechanismus
-    const result = { status, warnings, ends, sup, lineloadsOf, nodes };
-    if (!status.determinate) return result;
+    // verschieblich, aber für die gegebene Belastung im Gleichgewicht (z. B. Seil mit Masse)
+    status.solvable = !status.indeterminate && !status.inconsistent;
+    status.degree = n - sol.rank;
+    status.mobility = g - sol.rank;
+    const result = { status, warnings, ends, sup, lineloadsOf, nodes, pg };
+    if (!status.solvable) return result;
 
     const x = sol.x;
     result.x = x;
-    // Lagerreaktionen
     result.reactions = sup.map(({ s, comps }) => ({
       s,
       comps: comps.map((c) => ({ c: c.c, f: c.f, m: c.m, v: clean(x[c.i]) })),
     }));
-    // Schnittgrößen je Element
+    result.unknownLoads = unknownLoads.map(({ l, i }) => ({ l, v: clean(x[i]) }));
     result.members = doc.elements.map((e) => memberForces(e, result));
+    result.pulleys = pulleyRes.map((p) => {
+      const S = (q) => result.members.find((m) => m.e === q.e).N[0];
+      return { ...p, Shi: S(p.hi), Slo: p.lo ? S(p.lo) : 0 };
+    });
     for (const m of result.members) {
       if (m.e.type === 'rope' && m.N[0] < -1e-9) warnings.push(`Seil auf Druck belastet (S = ${TM.fmtNum(m.N[0])}) – ein Seil kann keine Druckkraft aufnehmen.`);
+    }
+    for (const ul of result.unknownLoads) {
+      if (ul.l.type === 'mass' && ul.v < -1e-9) warnings.push('Die gesuchte Masse ist negativ – Gleichgewicht so nicht möglich.');
     }
     return result;
   };
@@ -241,11 +330,13 @@
   }
 
   function memberForces(e, res) {
-    const A = res.nodes.get(e.n1), B = res.nodes.get(e.n2);
-    const d = V.sub(B, A), Lx = V.len(d), u = V.norm(d), z = { x: u.y, y: -u.x };
     const o = res.ends.get(e.id + ':1'), o2 = res.ends.get(e.id + ':2');
+    const A = e.type === 'rope' ? o.P : res.nodes.get(e.n1), B = e.type === 'rope' ? o2.P : res.nodes.get(e.n2);
+    const d = V.sub(B, A), Lx = V.len(d), u = V.norm(d), z = { x: u.y, y: -u.x };
     const x = res.x;
-    const f1 = { x: x[o.fx], y: x[o.fy] }, m1 = o.m >= 0 ? x[o.m] : 0;
+    let f1 = { x: x[o.fx], y: x[o.fy] }, m1 = o.m >= 0 ? x[o.m] : 0;
+    // Endkräfte auf die Stabachse beziehen (Balken: Achse von Knoten zu Knoten)
+    if (e.type !== 'rope') m1 += V.cross(V.sub(o.P, A), f1);
     const loads = (res.lineloadsOf.get(e.id) || []).map((l) => ({
       dv: TM.lineloadDir(l, A, B), q: (+l.value || 0) / qNorm(l), qa: +l.qa || 0, qb: +l.qb || 0,
     }));
