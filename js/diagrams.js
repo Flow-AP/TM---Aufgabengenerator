@@ -140,8 +140,26 @@
    * Freigeschnittene Darstellung: jeder Körper einzeln, gegeneinander verschoben,
    * mit Lagerreaktionen und Schnittkräften an den Verbindungen.
    */
-  function cutSVG(doc, res, u, top, solved) {
+  /** Körper mit Verschiebung (vom Gesamtschwerpunkt weg) für die aufgeteilte Darstellung. */
+  function bodyLayout(doc) {
     const bodies = TM.bodies(doc);
+    const nodes = new Map(doc.nodes.map((n) => [n.id, n]));
+    const offOf = new Map();
+    if (!bodies.length) return { bodies, offOf };
+    const cen = (ids) => { let sx = 0, sy = 0; for (const id of ids) { sx += nodes.get(id).x; sy += nodes.get(id).y; } return { x: sx / ids.length, y: sy / ids.length }; };
+    const all = cen([...new Set(bodies.flatMap((b) => [...b.nodes]))]);
+    const ext = (k) => Math.max(...doc.nodes.map((n) => n[k])) - Math.min(...doc.nodes.map((n) => n[k]));
+    const gap = Math.max(2.2, 0.25 * Math.max(ext('x'), ext('y')));
+    for (const b of bodies) {
+      const d = V.sub(cen([...b.nodes]), all);
+      b.off = bodies.length > 1 && V.len(d) > 1e-6 ? V.mul(V.norm(d), gap) : { x: 0, y: 0 };
+      for (const e of b.elements) offOf.set(e.id, b.off);
+    }
+    return { bodies, offOf };
+  }
+
+  function cutSVG(doc, res, u, top, solved) {
+    const { bodies } = bodyLayout(doc);
     if (!bodies.length) return { svg: '', bottom: top };
     const nodes = new Map(doc.nodes.map((n) => [n.id, n]));
     const x = res.x;
@@ -151,16 +169,6 @@
       const els = doc.elements.filter((e) => e.n1 === n.id || e.n2 === n.id);
       const first = els[0] && els[0].type === 'beam' ? els[0] : els.find((e) => e.type === 'beam');
       if (first) owner.set(n.id, bodies.find((b) => b.elSet.has(first.id)));
-    }
-    // Verschiebung der Körper (vom Gesamtschwerpunkt weg)
-    const cen = (ids) => { let sx = 0, sy = 0; for (const id of ids) { sx += nodes.get(id).x; sy += nodes.get(id).y; } return { x: sx / ids.length, y: sy / ids.length }; };
-    const all = cen([...new Set(bodies.flatMap((b) => [...b.nodes]))]);
-    const ext = (k) => Math.max(...doc.nodes.map((n) => n[k])) - Math.min(...doc.nodes.map((n) => n[k]));
-    const gap = Math.max(2.2, 0.25 * Math.max(ext('x'), ext('y')));
-    for (const b of bodies) {
-      const cb = cen([...b.nodes]);
-      const d = V.sub(cb, all);
-      b.off = bodies.length > 1 && V.len(d) > 1e-6 ? V.mul(V.norm(d), gap) : { x: 0, y: 0 };
     }
     let minY = Infinity, maxY = -Infinity;
     for (const b of bodies) for (const id of b.nodes) { const y = nodes.get(id).y + b.off.y; minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
@@ -232,13 +240,19 @@
     return { svg, bottom: minY + dy - 75 / S };
   }
 
-  function fiber(doc, dy, gapPx) {
+  /** shift: Verschiebung je Element (Welt) oder null = nicht zeichnen. Zahl = nur vertikal. */
+  const toShift = (sh) => (typeof sh === 'function' ? sh : () => ({ x: 0, y: sh }));
+
+  function fiber(doc, sh, gapPx) {
     let s = '';
+    const shift = toShift(sh);
     for (const e of doc.elements) {
       if (e.type !== 'beam') continue;
+      const sv = shift(e);
+      if (!sv) continue;
       const A = doc.nodes.find((n) => n.id === e.n1), B = doc.nodes.find((n) => n.id === e.n2);
       const u = V.norm(V.sub(B, A)), z = { x: u.y, y: -u.x };
-      const a = P({ x: A.x, y: A.y + dy }), b = P({ x: B.x, y: B.y + dy });
+      const a = P(V.add(A, sv)), b = P(V.add(B, sv));
       const zs = sd(z), us = sd(u), L = V.dist(a, b);
       const sh = Math.min(6, L * 0.1);
       const p1 = V.add(V.add(a, V.mul(us, sh)), V.mul(zs, gapPx)), p2 = V.add(V.sub(b, V.mul(us, sh)), V.mul(zs, gapPx));
@@ -247,14 +261,17 @@
     return s;
   }
 
-  function diagram(doc, res, t, dy, k, labels, u) {
+  function diagram(doc, res, t, sh, k, labels, u) {
     const col = COLORS[t], unit = t === 'M' ? u.M : u.F;
+    const shift = toShift(sh);
     let s = '';
     for (const m of res.members) {
       const vals = m[t];
+      const sv = shift(m.e);
+      if (!sv) continue;
       if (t === 'N' && m.e.type !== 'beam') {
         // Pendelstab/Seil: konstante Normalkraft als Wert am Stab
-        const a = P({ x: m.A.x, y: m.A.y + dy }), b = P({ x: m.B.x, y: m.B.y + dy });
+        const a = P(V.add(m.A, sv)), b = P(V.add(m.B, sv));
         const v = vals[0];
         s += `<line x1="${c(a.x)}" y1="${c(a.y)}" x2="${c(b.x)}" y2="${c(b.y)}" stroke="${col}" stroke-width="${Math.abs(v) > EPS ? 3.2 : 1.6}" stroke-opacity="0.8"${v < -EPS ? ' stroke-dasharray="7 4"' : ''}/>`;
         const mid = V.lerp(a, b, 0.5), us = V.norm(V.sub(b, a));
@@ -271,7 +288,7 @@
       if (!vals.some((v) => Math.abs(v) > EPS)) continue;
       const dirW = t === 'M' ? m.z : V.mul(m.z, -1);
       const ds = sd(dirW);
-      const base = (x) => P({ x: m.A.x + m.u.x * x, y: m.A.y + m.u.y * x + dy });
+      const base = (x) => P({ x: m.A.x + m.u.x * x + sv.x, y: m.A.y + m.u.y * x + sv.y });
       const pts = m.xs.map((x, i) => V.add(base(x), V.mul(ds, vals[i] * k)));
       const b0 = base(0), b1 = base(m.L);
       const poly = [b0, ...pts, b1].map((q) => `${c(q.x)},${c(q.y)}`).join(' ');
@@ -354,22 +371,42 @@
       }
       return s;
     }
+    // Aufgeteilt: jedes Teilsystem erhält eigene Diagramme (gleiche Anordnung wie freigeschnitten)
+    const lay = o.split ? bodyLayout(doc) : null;
+    const split = lay && lay.bodies.length > 1;
+    let sMinY = minY, sMaxY = maxY, sMinX = minX;
+    if (split) {
+      sMinY = Infinity; sMaxY = -Infinity; sMinX = Infinity;
+      for (const m of res.members) {
+        const off = lay.offOf.get(m.e.id);
+        if (!off) continue;
+        for (const q of [m.A, m.B]) { sMinY = Math.min(sMinY, q.y + off.y); sMaxY = Math.max(sMaxY, q.y + off.y); sMinX = Math.min(sMinX, q.x + off.x); }
+      }
+    }
+    const shiftFor = (dy) => (e) => {
+      if (!split) return { x: 0, y: dy };
+      const off = lay.offOf.get(e.id);
+      return off ? { x: off.x, y: off.y + dy } : null;
+    };
     let prevBottom = bottom;
     for (const t of types) {
-      const mx = Math.max(EPS, ...res.members.map((m) => Math.max(...m[t].map(Math.abs))));
-      const dy = prevBottom - 30 / S - amp / S - maxY;
-      prevBottom = minY + dy - amp / S - 18 / S;
+      const shown = res.members.filter((m) => shiftFor(0)(m.e));
+      if (!shown.length) continue;
+      const mx = Math.max(EPS, ...shown.map((m) => Math.max(...m[t].map(Math.abs))));
+      const dy = prevBottom - 30 / S - amp / S - sMaxY;
+      prevBottom = sMinY + dy - amp / S - 18 / S;
+      const shift = shiftFor(dy);
       // Systemlinien
       let ax = '';
-      for (const m of res.members) {
-        const A = m.A, B = m.B;
-        const a = P({ x: A.x, y: A.y + dy }), b = P({ x: B.x, y: B.y + dy });
+      for (const m of shown) {
+        const sv = shift(m.e);
+        const a = P(V.add(m.A, sv)), b = P(V.add(m.B, sv));
         ax += `M${c(a.x)} ${c(a.y)}L${c(b.x)} ${c(b.y)}`;
       }
       s += `<path d="${ax}" stroke="#111" stroke-width="1.6" fill="none" stroke-linecap="round"/>`;
-      if (t !== 'N') s += fiber(doc, dy, 3);
-      s += diagram(doc, res, t, dy, amp / mx, labels, u);
-      const lp = P({ x: minX, y: (minY + maxY) / 2 + dy });
+      if (t !== 'N') s += fiber(doc, shift, 3);
+      s += diagram(doc, res, t, shift, amp / mx, labels, u);
+      const lp = P({ x: sMinX, y: (sMinY + sMaxY) / 2 + dy });
       s += TM.textSVG(t, lp.x - 40, lp.y, { anchor: 'end', size: 20, fill: COLORS[t], suffix: ` in ${t === 'M' ? u.M : u.F}` });
     }
     return s;

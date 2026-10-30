@@ -42,6 +42,8 @@ Mit **Durchrechnen** (oder dem Reiter *Lösung*) wird die Aufgabe gelöst:
 * **Freigeschnittene Teilsysteme:** Jeder starre Körper wird einzeln dargestellt, auseinandergezogen, mit seinen Lasten,
   Lagerreaktionen (rot) und den Verbindungskräften an Gelenken, Schiebehülsen, Seilen und Stäben (violett,
   actio = reactio). Auch diese Ansicht rechnet beim Ändern live mit.
+* **Schnittgrößen gemeinsam oder je Teilsystem:** Wahlweise ein Diagrammsatz für das Gesamtsystem oder eigene
+  N-, Q- und M-Diagramme für jedes Teilsystem, in derselben Anordnung wie beim Freischneiden.
 * **Live-Anpassung:** Kraft entlang des Balkens ziehen, Richtung am runden Griff ändern, Knoten verschieben,
   Zahlenwerte im Bereich *Werte verändern* ändern – Lösung und Diagramme passen sich sofort an.
   Gleiche Grundgrößen bleiben gekoppelt (`F` und `2F`).

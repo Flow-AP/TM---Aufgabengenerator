@@ -23,7 +23,7 @@
     mode: 'edit', // 'edit' | 'solve'
     convertUnits: true,
     res: null,
-    sopt: { show: { N: true, Q: true, M: true }, layout: 'stack', scale: 1, freebody: true, cut: false, couple: true, geometry: false, variants: 4 },
+    sopt: { show: { N: true, Q: true, M: true }, layout: 'stack', scale: 1, freebody: true, cut: false, split: false, couple: true, geometry: false, variants: 4 },
     syncers: [],
   };
 
@@ -1335,7 +1335,7 @@
       const res = o.res || TM.solve(doc);
       const ok = res && res.members;
       content = TM.render(doc, { edit: false, hideSupports: ok, solved: ok ? new Map(res.unknownLoads.map((x) => [x.l.id, x.v])) : null }) +
-        (ok ? TM.renderSolution(doc, res, { show: { N: true, Q: true, M: true }, layout: 'stack', scale: ed.sopt.scale, freebody: true, cut: ed.sopt.cut }) : '');
+        (ok ? TM.renderSolution(doc, res, { show: { N: true, Q: true, M: true }, layout: 'stack', scale: ed.sopt.scale, freebody: true, cut: ed.sopt.cut, split: ed.sopt.split }) : '');
     } else content = TM.render(doc, { edit: false });
     const tmp = document.createElementNS(NS, 'svg');
     tmp.setAttribute('style', 'position:absolute;left:-10000px;top:0;width:10px;height:10px');
@@ -1624,6 +1624,16 @@
     lr.innerHTML = '<span>Anordnung</span>';
     lr.appendChild(lay);
     pane.appendChild(lr);
+    const spl = document.createElement('select');
+    spl.innerHTML = '<option value="0">gemeinsam (Gesamtsystem)</option><option value="1">je Teilsystem (aufgeteilt)</option>';
+    spl.value = o.split ? '1' : '0';
+    spl.addEventListener('change', () => { o.split = spl.value === '1'; buildSolvePanel(); redraw(); fitView(); });
+    const sr = document.createElement('label');
+    sr.className = 'row';
+    sr.innerHTML = '<span>Schnittgrößen</span>';
+    sr.appendChild(spl);
+    pane.appendChild(sr);
+    if (o.split) ui.note('Aufgeteilt: jedes Teilsystem (biegesteif verbundene Balken) erhält eigene Diagramme – nur bei Anordnung „untereinander“. Stab- und Seilkräfte stehen in der Tabelle bzw. in der freigeschnittenen Darstellung.');
     const rng = document.createElement('input');
     rng.type = 'range'; rng.min = '0.3'; rng.max = '3'; rng.step = '0.1'; rng.value = o.scale;
     rng.addEventListener('input', () => { o.scale = +rng.value; redraw(); });
