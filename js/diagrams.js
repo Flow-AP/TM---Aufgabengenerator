@@ -10,6 +10,10 @@
   TM.supportName = (doc, s) => {
     const n = doc.nodes.find((k) => k.id === s.node);
     if (n && n.label) return n.label;
+    if (s.type === 'contact') {
+      const cs = doc.supports.filter((x) => x.type === 'contact' && !(doc.nodes.find((k) => k.id === x.node) || {}).label);
+      return cs.length > 1 ? 'K' + (cs.indexOf(s) + 1) : 'K';
+    }
     return 'L' + (doc.supports.indexOf(s) + 1);
   };
 
@@ -20,6 +24,7 @@
     if (comp.c === 'x') return sub(n, 'H');
     if (comp.c === 'y') return sub(n, 'V');
     if (comp.c === 'm') return sub('M', n);
+    if (s.type === 'contact') return comp.c === 't' ? sub('R', n) : sub('N', n);
     if (Math.abs(comp.f.x) < 1e-9) return sub(n, 'V');
     if (Math.abs(comp.f.y) < 1e-9) return sub(n, 'H');
     return n;

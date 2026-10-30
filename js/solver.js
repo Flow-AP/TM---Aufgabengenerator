@@ -35,10 +35,21 @@
       case 'los': case 'gleit': return [{ c: 'n', f: nvec }];
       case 'clamp': return [{ c: 'x', f: { x: 1, y: 0 } }, { c: 'y', f: { x: 0, y: 1 } }, { c: 'm', m: 1 }];
       case 'schiebe': return [{ c: 'n', f: nvec }, { c: 'm', m: 1 }];
+      case 'contact': {
+        // Auflage mit Coulomb-Reibung: Normalkraft N (Druck) und Reibkraft R tangential
+        const mu = +s.mu || 0;
+        if (mu <= 0) return [{ c: 'n', f: nvec }];
+        if (s.fmode === 'limit') {
+          // Grenzfall: R = μ N, entgegen der Rutschrichtung (slip = ±1 bezogen auf t)
+          const sl = s.slip === -1 ? -1 : 1;
+          return [{ c: 'n', f: V.sub(nvec, V.mul(tvec, sl * mu)), limit: { n: nvec, t: tvec, k: -sl * mu } }];
+        }
+        return [{ c: 'n', f: nvec }, { c: 't', f: tvec }];
+      }
       default: return [];
     }
-    void tvec;
   }
+  TM.supportComponents = supportComponents;
 
   function gauss(rows, rhs, n) {
     const m = rows.length;
@@ -105,7 +116,9 @@
         a += supportComponents(s).filter((c) => c.c !== 'm' || rigid).length;
       }
     }
-    return { a, z, p, u: nUnknownLoads, n: a + z - 3 * p + nUnknownLoads };
+    // Massenpunkte ohne Tragwerk (z. B. Klotz auf einer Ebene): 2 Freiheitsgrade
+    const pts = [...active].filter((id) => !M.elementsAt(doc, id).length).length;
+    return { a, z, p, pts, u: nUnknownLoads, n: a + z - 3 * p - 2 * pts + nUnknownLoads };
   }
 
   TM.solve = function (doc) {
@@ -128,13 +141,20 @@
       }
     }
     const active = new Set(endsAt.keys());
+    // Massenpunkte: Knoten ohne Element, aber mit Lager und Last (Klotz auf Unterlage)
+    for (const nd of doc.nodes) {
+      if (!active.has(nd.id) && M.supportAt(doc, nd.id) && doc.loads.some((l) => l.node === nd.id)) {
+        active.add(nd.id);
+        endsAt.set(nd.id, []);
+      }
+    }
     const sup = [];
     for (const s of doc.supports) {
       if (!active.has(s.node)) continue;
       const comps = supportComponents(s).map((c) => ({ ...c, i: U({ t: 'r' }) }));
       sup.push({ s, comps });
     }
-    if (!doc.elements.length) return { empty: true };
+    if (!doc.elements.length && !active.size) return { empty: true };
     // gesuchte Lasten als Unbekannte
     const unknownLoads = [];
     for (const l of doc.loads) {
@@ -295,8 +315,24 @@
     result.x = x;
     result.reactions = sup.map(({ s, comps }) => ({
       s,
-      comps: comps.map((c) => ({ c: c.c, f: c.f, m: c.m, v: clean(x[c.i]) })),
+      comps: comps.flatMap((c) => c.limit
+        ? [{ c: 'n', f: c.limit.n, v: clean(x[c.i]) }, { c: 't', f: c.limit.t, v: clean(c.limit.k * x[c.i]) }]
+        : [{ c: c.c, f: c.f, m: c.m, v: clean(x[c.i]) }]),
     }));
+    // Reibung an Auflagen: Haftbedingung |R| ≤ μ N und Kontaktbedingung N ≥ 0
+    result.friction = result.reactions.filter((r) => r.s.type === 'contact').map((r) => {
+      const N = (r.comps.find((c) => c.c === 'n') || { v: 0 }).v;
+      const T = (r.comps.find((c) => c.c === 't') || { v: 0 }).v;
+      const mu = +r.s.mu || 0;
+      const lift = N < -1e-9;
+      const ratio = Math.abs(N) > 1e-12 ? Math.abs(T) / N : (Math.abs(T) > 1e-12 ? Infinity : 0);
+      const limit = r.s.fmode === 'limit' && mu > 0;
+      const sticks = !lift && (limit || Math.abs(T) <= mu * N + 1e-9);
+      return { s: r.s, N, T, mu, ratio, lift, sticks, limit };
+    });
+    for (const f of result.friction) {
+      if (f.lift) warnings.push(`Die Auflage ${TM.supportName ? TM.supportName(doc, f.s) : ''} hebt ab (N < 0) – der Kontakt kann keine Zugkraft übertragen.`);
+    }
     result.unknownLoads = unknownLoads.map(({ l, i }) => ({ l, v: clean(x[i]) }));
     result.members = doc.elements.map((e) => memberForces(e, result));
     result.pulleys = pulleyRes.map((p) => {

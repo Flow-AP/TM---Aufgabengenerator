@@ -14,7 +14,7 @@ Die aktuelle Aufgabe wird automatisch im Browser (localStorage) zwischengespeich
 | Bereich | Inhalt |
 |---|---|
 | Tragwerk | Balken (Kontur- oder Liniendarstellung), Stab (gelenkig), Seil, Feder |
-| Lager | Festlager, Loslager, Loslager mit Rollen, Einspannung, Parallelführung, Pendelstütze |
+| Lager | Festlager, Loslager, Loslager mit Rollen, Einspannung, Parallelführung, Pendelstütze, Auflage mit Reibung (raue Fläche, beliebig geneigt) |
 | Verbindungen | Gelenk (M = 0), Schiebehülse (N = 0), drehbare Schiebehülse (N = 0, M = 0), Parallelführung / Querkraftgelenk (Q = 0), starre Ecken bei Rahmen |
 | Seil & Masse | Rolle (frei drehbar), feste Trommel mit Seilreibung (Euler-Eytelwein, Grenzfall), Massenblock (G = m·g, hängend oder aufliegend) |
 | Lasten | Einzelkraft (beliebige Richtung, optional mit Winkelangabe α), Moment (beide Drehsinne), Streckenlast (konstant, Dreieck, Trapez; senkrecht oder vertikal wirkend) |
@@ -35,6 +35,10 @@ Mit **Durchrechnen** (oder dem Reiter *Lösung*) wird die Aufgabe gelöst:
   das Bezugssystem. Bei Fachwerken stehen die Stabkräfte direkt am Stab (Druckstäbe gestrichelt).
 * **Gesuchte Lasten:** Kräfte, Momente oder Massen lassen sich als „gesucht“ markieren; ihr Betrag wird aus dem
   Gleichgewicht berechnet (z. B. Haltekraft an einer Seiltrommel).
+* **Reibung an Kontaktflächen (Coulomb):** Auflage mit Reibungszahl μ. Ansatz *Haftung prüfen*: Normalkraft N und
+  Reibkraft R werden aus dem Gleichgewicht bestimmt, geprüft wird |R| ≤ μ·N (haftet / rutscht / hebt ab).
+  Ansatz *Grenzfall*: R = μ·N entgegen der gewählten Rutschrichtung – z. B. mit einer gesuchten Kraft. Massenblöcke
+  liegen auf der (auch geneigten) Fläche; ein Klotz ohne Balken wird als Massenpunkt gerechnet.
 * **Rollen und Trommeln:** Das Seil liegt tangential an. Bei einer freien Rolle sind beide Seilkräfte gleich. Bei
   einer festen Trommel gilt im Grenzfall S_groß = S_klein · e^(μα), der Umschlingungswinkel α wird aus der Geometrie bestimmt.
   Verschiebliche Systeme (Seil mit hängender Masse) werden gelöst, wenn die Belastung im Gleichgewicht ist.

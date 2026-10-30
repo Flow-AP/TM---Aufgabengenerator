@@ -36,6 +36,7 @@
     fest: { name: 'Festlager', group: 'Lager' },
     los: { name: 'Loslager', group: 'Lager' },
     gleit: { name: 'Loslager (Rollen)', group: 'Lager' },
+    contact: { name: 'Auflage mit Reibung', group: 'Lager' },
     clamp: { name: 'Einspannung', group: 'Lager' },
     schiebe: { name: 'Parallel­führung', group: 'Lager' },
     pendel: { name: 'Pendel­stütze', group: 'Lager' },
@@ -70,6 +71,7 @@
       case 'rope': s = `<path d="M6 30Q28 6 50 12" stroke="${k}" stroke-width="1.4" fill="none"/>`; break;
       case 'spring': s = `<path d="M6 20H14L17 14L21 26L25 14L29 26L33 14L37 26L40 20H50" stroke="${k}" stroke-width="1.5" fill="none"/>`; break;
       case 'fest': case 'los': case 'gleit': s = sup(item, 28, 8); break;
+      case 'contact': s = `<rect x="18" y="8" width="20" height="14" fill="#eee" stroke="${k}" stroke-width="1.4"/>` + sup('contact', 28, 22) + `<text x="48" y="15" font-size="10" font-style="italic" font-family="serif">μ</text>`; break;
       case 'clamp': s = `<path d="M24 20H52" stroke="${k}" stroke-width="7"/><path d="M24 20H52" stroke="#fff" stroke-width="3.5"/>` + sup('clamp', 20, 20, 90, 0); break;
       case 'schiebe': s = `<path d="M30 20H52" stroke="${k}" stroke-width="7"/><path d="M30 20H52" stroke="#fff" stroke-width="3.5"/>` + sup('schiebe', 26, 20, 90, 0); break;
       case 'pendel': s = `<line x1="28" y1="4" x2="28" y2="20" stroke="${k}" stroke-width="2"/><circle cx="28" cy="4" r="3" fill="#fff" stroke="${k}" stroke-width="1.3"/>` + `<g transform="translate(28 20) scale(.8)">${TM.supportShape('fest')}</g>`; break;
@@ -426,11 +428,12 @@
           out = { kind: 'element', id: M.addElement(doc, item, n1, n2).id };
           break;
         }
-        case 'fest': case 'los': case 'gleit': case 'clamp': case 'schiebe': {
+        case 'fest': case 'los': case 'gleit': case 'clamp': case 'schiebe': case 'contact': {
           const nid = resolve(sn);
           let s = M.supportAt(doc, nid);
           if (!s) { s = { id: TM.uid('s'), node: nid, type: item, angle: -90 }; doc.supports.push(s); }
           s.type = item;
+          if (item === 'contact' && s.mu == null) Object.assign(s, { mu: 0.3, fmode: 'check', slip: 1 });
           s.angle = defaultSupportAngle(nid, item);
           out = { kind: 'support', id: s.id };
           break;
@@ -1057,6 +1060,12 @@
     else ui.note('Der Betrag wird beim Durchrechnen aus dem Gleichgewicht bestimmt (Richtung bleibt fest).');
   }
 
+  /** Pfeilsymbol für eine Richtung (Welt). */
+  function arrowOf(v) {
+    const k = ((Math.round(V.ang(v) / 45) % 8) + 8) % 8;
+    return ['→', '↗', '↑', '↖', '←', '↙', '↓', '↘'][k];
+  }
+
   function addSupportAt(nid, type) {
     const s = { id: TM.uid('s'), node: nid, type, angle: defaultSupportAngle(nid, type) };
     mutate(() => ed.doc.supports.push(s));
@@ -1106,7 +1115,25 @@
       title.textContent = 'Lager';
       ui.select('Lagerart', () => sp.type, (v) => { sp.type = v; }, [
         ['fest', 'Festlager'], ['los', 'Loslager'], ['gleit', 'Loslager (Rollen)'], ['clamp', 'Einspannung'], ['schiebe', 'Parallelführung'],
+        ['contact', 'Auflage mit Reibung'],
       ]);
+      if (sp.type === 'contact') {
+        if (sp.mu == null) Object.assign(sp, { mu: 0.3, fmode: 'check', slip: 1 });
+        ui.section('Reibung (Coulomb)');
+        ui.num('Reibungszahl μ', () => sp.mu, (v) => (sp.mu = Math.max(0, v)), { step: 0.05 });
+        ui.select('Ansatz', () => sp.fmode || 'check', (v) => (sp.fmode = v), [
+          ['check', 'Haftung prüfen (|R| ≤ μ N)'], ['limit', 'Grenzfall: R = μ N (Haften/Gleiten)'],
+        ]);
+        if (sp.fmode === 'limit') {
+          const t = V.perp(V.mul(V.dir(sp.angle ?? -90), -1));
+          ui.select('Körper rutscht', () => String(sp.slip === -1 ? -1 : 1), (v) => (sp.slip = +v), [
+            ['1', `in Richtung ${arrowOf(t)}`], ['-1', `in Richtung ${arrowOf(V.mul(t, -1))}`],
+          ]);
+          ui.note('Die Reibkraft wirkt entgegen der (drohenden) Rutschrichtung. μ ist je nach Aufgabe die Haft- (μ<sub>0</sub>) oder Gleitreibungszahl. Typisch mit einer „gesuchten“ Last kombinieren.');
+        } else {
+          ui.note('Normal- und Reibkraft werden aus dem Gleichgewicht bestimmt; die Lösung prüft, ob der Körper haftet (|R| ≤ μ N). μ = 0: glatte Fläche.');
+        }
+      }
       ui.num('Richtung in °', () => sp.angle ?? -90, (v) => (sp.angle = v), { step: 45 });
       ui.buttons([
         ['⟲ 45°', () => mutate(() => (sp.angle = norm180(sp.angle + 45)))],
@@ -1383,7 +1410,7 @@
     const numDims = doc.dims.some((d) => d.type !== 'angle' && (doc.meta.showValues || TM.dimShow(d) !== 'sym' || !d.label));
     const lenNote = numDims ? ` Längenangaben in ${TM.esc(TM.units(doc).L)}.` : '';
     if (!list.length) return lenNote ? `<p class="given">${lenNote.trim()}</p>` : '';
-    return `<p class="given"><b>Zahlenwerte:</b> ${list.map((g) => `<i>${richHTML(g.sym)}</i> = ${TM.fmtNum(g.value)}${g.unit === '°' ? '°' : '&nbsp;' + TM.esc(g.unit)}`).join(', &nbsp;')}.${lenNote}</p>`;
+    return `<p class="given"><b>Zahlenwerte:</b> ${list.map((g) => `<i>${richHTML(g.sym)}</i> = ${TM.fmtNum(g.value)}${g.unit === '°' ? '°' : g.unit ? '&nbsp;' + TM.esc(g.unit) : ''}`).join(', &nbsp;')}.${lenNote}</p>`;
   }
 
   function taskHTML(doc, sub) {
@@ -1508,7 +1535,9 @@
       if (st.indeterminate) parts.push(`${st.degree}-fach statisch unbestimmt`);
       h += `<div class="badge bad">✗ ${parts.join(' und ')}</div>`;
     }
-    h += `<div class="note">Abzählkriterium: <i>a</i> = ${cnt.a}, <i>z</i> = ${cnt.z}, <i>p</i> = ${cnt.p} ⇒ <i>n</i> = <i>a</i> + <i>z</i> − 3<i>p</i> = ${cnt.n}`;
+    h += cnt.pts
+      ? `<div class="note">Abzählkriterium: <i>a</i> = ${cnt.a}, <i>z</i> = ${cnt.z}, <i>p</i> = ${cnt.p}, Massenpunkte <i>k</i> = ${cnt.pts}${cnt.u ? `, gesuchte Lasten <i>g</i> = ${cnt.u}` : ''} ⇒ <i>n</i> = <i>a</i> + <i>z</i> − 3<i>p</i> − 2<i>k</i>${cnt.u ? ' + <i>g</i>' : ''} = ${cnt.n}`
+      : `<div class="note">Abzählkriterium: <i>a</i> = ${cnt.a}, <i>z</i> = ${cnt.z}, <i>p</i> = ${cnt.p} ⇒ <i>n</i> = <i>a</i> + <i>z</i> − 3<i>p</i> = ${cnt.n}`;
     const fsys = st.f;
     if (cnt.n !== fsys) h += `<br>Gleichungssystem: ${st.u} Unbekannte, ${st.g} Gleichungen (enthält ${fsys - cnt.n > 0 ? 'innere Unbestimmtheit geschlossener Rahmen' : 'Sonderfälle'})`;
     if (cnt.u) h += `<br>davon ${cnt.u} gesuchte Last${cnt.u > 1 ? 'en' : ''} als Unbekannte`;
@@ -1543,6 +1572,20 @@
     if (twoForce.length) {
       h += '<h4>Stab- und Seilkräfte</h4><table class="res">';
       for (const m of twoForce) h += row(m.e.label ? `S_{${m.e.label}}` : `S (${TM.memberName(doc, m.e)})`, m.N[0], u.F, m.N[0] > 1e-9 ? 'Zug' : m.N[0] < -1e-9 ? 'Druck' : 'Nullstab');
+      h += '</table>';
+    }
+    if (res.friction && res.friction.length) {
+      h += '<h4>Reibung</h4><table class="res">';
+      for (const f of res.friction) {
+        const nm = TM.supportName(doc, f.s);
+        let verdict;
+        if (f.lift) verdict = '<span style="color:#a50e0e">hebt ab (N &lt; 0)</span>';
+        else if (f.limit) verdict = `Grenzfall: |R| = μ·N`;
+        else if (f.mu <= 0) verdict = 'glatt';
+        else verdict = f.sticks ? `<span style="color:#1e6b34">haftet ✓</span> (${TM.fmtNum(f.ratio, 3)} ≤ ${TM.fmtNum(f.mu, 3)})` : `<span style="color:#a50e0e">rutscht ✗</span> (${TM.fmtNum(f.ratio, 3)} &gt; ${TM.fmtNum(f.mu, 3)})`;
+        h += `<tr><td>${rh(nm)}</td><td class="v">μ = ${TM.fmtNum(f.mu, 3)}</td><td class="h">${verdict}</td></tr>`;
+        if (f.mu > 0 && !f.lift) h += row(`R_{${nm}}/N_{${nm}}`, f.ratio, '', 'erforderliche Reibungszahl');
+      }
       h += '</table>';
     }
     if (res.pulleys.length) {
@@ -1678,7 +1721,7 @@
     wrap.style.cssText = 'display:flex;gap:4px;align-items:center';
     const i = document.createElement('input');
     i.type = 'number';
-    i.step = q.kind === 'load' ? '1' : q.kind === 'dim' ? String(step()) : '5';
+    i.step = q.kind === 'load' ? '1' : q.kind === 'dim' ? String(step()) : q.kind === 'mu' ? '0.05' : '5';
     const un = document.createElement('span');
     un.textContent = q.unit;
     un.style.cssText = 'color:var(--muted);font-size:12px;min-width:34px';
@@ -1729,7 +1772,9 @@
   }
 
   function applyGeomValue(q, v) {
-    const doc = ed.doc, d = M.get(doc, q.kind === 'fangle' ? 'load' : 'dim', q.obj.id);
+    const doc = ed.doc;
+    if (q.kind === 'mu') { const sp = M.get(doc, 'support', q.obj.id); if (sp) sp.mu = v; return; }
+    const d = M.get(doc, q.kind === 'fangle' ? 'load' : 'dim', q.obj.id);
     if (!d) return;
     if (q.kind === 'dim') {
       const A = M.node(doc, d.a), B = M.node(doc, d.b);

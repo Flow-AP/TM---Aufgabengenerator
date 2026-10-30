@@ -72,6 +72,12 @@
       if (l.type === 'force' && (l.angRef === 'h' || l.angRef === 'v') && l.angLabel)
         q.push({ kind: 'fangle', obj: l, label: l.angLabel, value: TM.forceRefAngle(l), unit: '°' });
     }
+    const contacts = doc.supports.filter((sp) => sp.type === 'contact' && +sp.mu > 0);
+    for (const sp of contacts) {
+      const n = doc.nodes.find((k) => k.id === sp.node);
+      const lab = contacts.length > 1 ? `μ_${(n && n.label) || doc.supports.indexOf(sp) + 1}` : 'μ';
+      q.push({ kind: 'mu', obj: sp, label: lab, value: +sp.mu, unit: '' });
+    }
     for (const d of doc.dims) {
       if (d.type === 'angle') {
         const g = TM.angleGeom(doc, d);

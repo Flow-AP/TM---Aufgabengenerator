@@ -120,6 +120,10 @@
         return `<line x1="-13" y1="${off}" x2="13" y2="${off}" stroke="${ink}" stroke-width="2.4" stroke-linecap="round"/>` +
           `<circle cx="-7.5" cy="${off + 3.9}" r="3.1" fill="#fff" ${st}/><circle cx="7.5" cy="${off + 3.9}" r="3.1" fill="#fff" ${st}/>` +
           ground(off + 7.8, -17, 17);
+      case 'contact': {
+        // raue Fläche: breite Bodenlinie mit Schraffur und Kennzeichnung μ
+        return ground(off, -24, 24, 2.2);
+      }
       case 'gleit':
         return `<polygon points="0,0 -11,15 11,15" fill="#fff" ${st}/>` +
           `<circle cx="-6" cy="18.3" r="3" fill="#fff" ${st}/><circle cx="6" cy="18.3" r="3" fill="#fff" ${st}/>` + ground(21.6, -17, 17);
@@ -163,17 +167,25 @@
       bw, beamAt: new Set(els.some((e) => e.type === 'beam') ? [n.id] : []),
       pinAt: new Set(n.hinge || els.some((e) => e.type === 'rod') || (s && s.type !== 'clamp' && s.type !== 'schiebe') ? [n.id] : []),
       lab: () => ({ t: '' }),
+      massBox: TM.massBoxes(doc),
     };
     const r = forceSVG(L, n, ctx);
     return { tail: r.tail, tip: r.tip };
   };
 
   function forceSVG(L, n, ctx) {
-    const p = P(n);
+    let p = P(n);
     const d = sd(V.dir(L.angle));
     const len = L.len || 55;
-    const trim = ctx.beamAt.has(L.node) ? ctx.bw / 2 + 1 : ctx.pinAt.has(L.node) ? STY.hinge + 1 : 0;
+    let trim = ctx.beamAt.has(L.node) ? ctx.bw / 2 + 1 : ctx.pinAt.has(L.node) ? STY.hinge + 1 : 0;
     const tipMode = L.tip !== false;
+    // Kraft an einem Massenblock: Pfeil beginnt bzw. endet am Blockrand (Wirkungslinie durch die Blockmitte)
+    const box = ctx.massBox && ctx.massBox.get(L.node);
+    if (box) {
+      p = box.c;
+      const v = V.rot(tipMode ? V.mul(d, -1) : d, -box.rot);
+      trim = Math.min(box.w / 2 / (Math.abs(v.x) || 1e-9), box.h / 2 / (Math.abs(v.y) || 1e-9)) + 1;
+    }
     let tip, tail;
     if (tipMode) { tip = V.sub(p, V.mul(d, trim)); tail = V.sub(tip, V.mul(d, len)); }
     else { tail = V.add(p, V.mul(d, trim)); tip = V.add(tail, V.mul(d, len)); }
@@ -267,25 +279,52 @@
     return '';
   }
 
+  /**
+   * Lage der Massenblöcke (Bildschirmkoordinaten): hängend unter dem Knoten oder aufliegend.
+   * Auf einer Auflage mit Reibung liegt der Block auf der (ggf. geneigten) Fläche.
+   */
+  TM.massBoxes = function (doc) {
+    const map = new Map();
+    const bw = doc.meta.beamStyle === 'solid' ? STY.solid : STY.bw;
+    for (const L of doc.loads) {
+      if (L.type !== 'mass') continue;
+      const n = doc.nodes.find((k) => k.id === L.node);
+      if (!n) continue;
+      const beam = doc.elements.some((e) => e.type === 'beam' && (e.n1 === n.id || e.n2 === n.id));
+      const sp = doc.supports.find((x) => x.node === n.id && x.type === 'contact');
+      const top = L.pos === 'top' || (L.pos == null && (beam || !!sp));
+      const rot = sp ? -(sp.angle ?? -90) - 90 : 0;
+      const w = L.w || 36, h = L.hgt || 28;
+      const lift = top && beam ? bw / 2 : 0;
+      const p = P(n);
+      const loc = (x, y) => V.add(p, V.rot({ x, y }, rot));
+      const y0 = top ? -lift - h : 0;
+      map.set(n.id, { w, h, rot, top, corners: [loc(-w / 2, y0), loc(w / 2, y0), loc(w / 2, y0 + h), loc(-w / 2, y0 + h)], c: loc(0, y0 + h / 2) });
+    }
+    return map;
+  };
+
   function massSVG(L, n, ctx) {
-    const p = P(n), w = L.w || 36, h = L.hgt || 28;
-    const top = L.pos === 'top' || (L.pos == null && ctx.beamAt.has(L.node));
-    const y0 = top ? p.y - (ctx.beamAt.has(L.node) ? ctx.bw / 2 : 0) - h : p.y;
-    let s = `<rect x="${c(p.x - w / 2)}" y="${c(y0)}" width="${w}" height="${h}" fill="#eeeeee" stroke="${ink}" stroke-width="1.6"/>`;
+    const box = ctx.massBox.get(n.id);
+    const pts = box.corners.map((q) => `${c(q.x)},${c(q.y)}`).join(' ');
+    let s = `<polygon points="${pts}" fill="#eeeeee" stroke="${ink}" stroke-width="1.6" stroke-linejoin="round"/>`;
+    // leichte Schraffur parallel zur Blockdiagonale
+    const [a, b, cc, d] = box.corners;
     let hh = '';
-    for (let k = 6; k < w + h; k += 7) {
-      const x1 = Math.max(0, k - h), y1 = Math.min(h, k), x2 = Math.min(w, k), y2 = Math.max(0, k - w);
-      hh += `M${c(p.x - w / 2 + x1)} ${c(y0 + y1)}L${c(p.x - w / 2 + x2)} ${c(y0 + y2)}`;
+    for (let k = 1; k < 6; k++) {
+      const t = k / 6;
+      hh += `M${c(a.x + (d.x - a.x) * t)} ${c(a.y + (d.y - a.y) * t)}L${c(a.x + (b.x - a.x) * t)} ${c(a.y + (b.y - a.y) * t)}`;
+      hh += `M${c(d.x + (cc.x - d.x) * t)} ${c(d.y + (cc.y - d.y) * t)}L${c(b.x + (cc.x - b.x) * t)} ${c(b.y + (cc.y - b.y) * t)}`;
     }
     s += `<path d="${hh}" stroke="${ink}" stroke-width="0.5" stroke-opacity="0.35" fill="none"/>`;
     if (L.showG) {
-      const tail = { x: p.x, y: y0 + h / 2 }, tip = { x: p.x, y: y0 + h + 34 };
+      const tail = box.c, tip = { x: box.c.x, y: box.c.y + box.h / 2 + 34 };
       s += arrow(tail, tip, { w: 2, hl: 11, hw: 4.2 });
       if (L.gLabel) s += textSVG(L.gLabel, tip.x + 9, tip.y - 12, { anchor: 'start' });
     }
     const lab = ctx.lab(L);
-    const lbl = lab.t ? textSVG(lab.t, p.x + (L.lox || 0), y0 + h / 2 + (L.loy || 0), { suffix: lab.suf, italic: lab.it, size: STY.fs * 0.95 }) : '';
-    const hit = `<rect class="hitr" x="${c(p.x - w / 2)}" y="${c(y0)}" width="${w}" height="${h}"/>`;
+    const lbl = lab.t ? textSVG(lab.t, box.c.x + (L.lox || 0), box.c.y + (L.loy || 0), { suffix: lab.suf, italic: lab.it, size: STY.fs * 0.95 }) : '';
+    const hit = `<polygon class="hitr" points="${pts}"/>`;
     return { svg: s, lbl, hit };
   }
 
@@ -475,7 +514,7 @@
       return { t: `${TM.fmtNum(+L.value || 0)} ${unit}`, it: false };
     };
     const js = doc.meta.jointSize ?? 1.5;
-    const ctx = { beamAt, pinAt, bw, values, lab };
+    const ctx = { beamAt, pinAt, bw, values, lab, massBox: TM.massBoxes(doc) };
     const pg = TM.model.pulleyGeom(doc);
     const hw = c(14 / z);
     const isSel = (k, id) => sel && sel.kind === k && sel.id === id;
@@ -501,7 +540,7 @@
       const n = nodes.get(s.node);
       if (!n) continue;
       const p = P(n);
-      const off = s.type === 'clamp' || s.type === 'schiebe' ? (beamAt.has(n.id) ? bw / 2 : 1.5) : 0;
+      const off = s.type === 'clamp' || s.type === 'schiebe' ? (beamAt.has(n.id) ? bw / 2 : 1.5) : s.type === 'contact' ? (beamAt.has(n.id) ? bw / 2 : 0) : 0;
       const rot = -(s.angle ?? -90) - 90;
       const hit = edit ? `<rect class="hitr" x="-18" y="-2" width="36" height="${off + 28}"/>` : '';
       let shape = TM.supportShape(s.type, off);

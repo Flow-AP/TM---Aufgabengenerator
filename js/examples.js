@@ -105,6 +105,28 @@
       d.meta.text = 'Der Balken ist in A eingespannt, in G durch eine Parallelführung (Querkraftgelenk) verbunden und in B verschieblich gelagert.\n\nGesucht: Lagerreaktionen sowie Verlauf von Q und M.';
       return d;
     },
+    function () {
+      const b = builder(), d = b.d;
+      const A = b.N(0, 0, 'A', -18, -14), K = b.N(1, 2), B = b.N(2, 4, 'B', -16, -10);
+      b.E('beam', A, K); b.E('beam', K, B);
+      d.supports.push({ id: TM.uid('s'), node: A, type: 'contact', angle: -90, mu: 0.3, fmode: 'check', slip: 1 });
+      d.supports.push({ id: TM.uid('s'), node: B, type: 'contact', angle: 0, mu: 0, fmode: 'check', slip: 1 });
+      b.F(K, -90, 'G', { value: 0.8 });
+      b.D('h', A, B, -1.2, 'a'); b.D('v', A, B, -1.2, '2a');
+      d.meta.title = 'Leiter an einer Wand';
+      d.meta.text = 'Eine Leiter (Gewicht G) lehnt an einer glatten Wand und steht auf einem rauen Boden (Haftreibungszahl μ_0 = 0,3).\n\nGesucht: Kontaktkräfte in A und B. Rutscht die Leiter?';
+      return d;
+    },
+    function () {
+      const b = builder(), d = b.d;
+      const K = b.N(0, 0, '', 0, 0);
+      d.supports.push({ id: TM.uid('s'), node: K, type: 'contact', angle: -90, mu: 0.3, fmode: 'limit', slip: -1 });
+      d.loads.push({ id: TM.uid('l'), type: 'mass', node: K, value: 100, label: 'm', showG: false, gLabel: 'G' });
+      b.F(K, 30, 'F', { unknown: true, tip: false, len: 60, angRef: 'h', angLabel: 'α', angShow: 'both' });
+      d.meta.title = 'Klotz mit Haftreibung';
+      d.meta.text = 'Ein Klotz der Masse m liegt auf einer rauen Unterlage (Haftreibungszahl μ_0 = 0,3) und wird unter dem Winkel α gezogen.\n\nGesucht: Kraft F, bei der der Klotz gerade zu rutschen beginnt.';
+      return d;
+    },
   ];
 
   TM.examples = examples.map((f) => () => M.normalize(f()));
