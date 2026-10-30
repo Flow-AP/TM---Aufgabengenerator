@@ -39,6 +39,9 @@ Mit **Durchrechnen** (oder dem Reiter *Lösung*) wird die Aufgabe gelöst:
   einer festen Trommel gilt im Grenzfall S_groß = S_klein · e^(μα), der Umschlingungswinkel α wird aus der Geometrie bestimmt.
   Verschiebliche Systeme (Seil mit hängender Masse) werden gelöst, wenn die Belastung im Gleichgewicht ist.
 * **Freikörperbild:** Lager werden durch die berechneten Reaktionskräfte ersetzt.
+* **Freigeschnittene Teilsysteme:** Jeder starre Körper wird einzeln dargestellt, auseinandergezogen, mit seinen Lasten,
+  Lagerreaktionen (rot) und den Verbindungskräften an Gelenken, Schiebehülsen, Seilen und Stäben (violett,
+  actio = reactio). Auch diese Ansicht rechnet beim Ändern live mit.
 * **Live-Anpassung:** Kraft entlang des Balkens ziehen, Richtung am runden Griff ändern, Knoten verschieben,
   Zahlenwerte im Bereich *Werte verändern* ändern – Lösung und Diagramme passen sich sofort an.
   Gleiche Grundgrößen bleiben gekoppelt (`F` und `2F`).
@@ -46,8 +49,9 @@ Mit **Durchrechnen** (oder dem Reiter *Lösung*) wird die Aufgabe gelöst:
 * **Drucken:** Aufgabe, Aufgabe + Lösung oder eine **Variantenserie** (je Variante ein Aufgabenblatt mit
   Zahlenwerten, Lösungen im Anhang).
 
-Zahlenwerte: Kräfte in *kN*, Momente in *kNm*, Streckenlasten in *kN/m* (Einheiten einstellbar). Die Länge im
-Raster entspricht der Länge in Metern. Streckenlasten beziehen sich auf die Elementlänge.
+Einheiten: Länge (mm, cm, m), Kraft (N, kN, MN) und Masse (g, kg, t) sind wählbar. Daraus ergeben sich die Einheiten
+für Momente und Streckenlasten. Beim Wechsel der Kraft- oder Masseneinheit können die Lastwerte umgerechnet werden.
+Die Längeneinheit benennt das Raster (1 Rasterlänge = 1 Längeneinheit). Streckenlasten beziehen sich auf die Elementlänge.
 
 Vorzeichen: *x* von Knoten 1 nach Knoten 2 des Elements, *z* rechts davon (gestrichelte Faser).
 N > 0 ist Zug. Q und M sind auf die gestrichelte Faser bezogen, M ist auf der Zugseite aufgetragen.
@@ -63,6 +67,8 @@ N > 0 ist Zug. Q und M sind auf die gestrichelte Faser bezogen, M ist auf der Zu
 * **Maße als Geometrie:** Maß auswählen und rechts den Zahlenwert ändern – die Konstruktion wird gestreckt
   (Option „Angehängte Teile mitbewegen“). Die angezeigte Bezeichnung (z. B. `a`, `2a`, `l/2`) ist davon unabhängig.
 * **Verbinden:** Knoten auf einen anderen Knoten oder ein Element ziehen.
+* **Verbindungen hervorheben:** Gelenke zwischen Tragwerksteilen, Schiebehülsen und Parallelführungen werden größer
+  gezeichnet (Größe unter *Darstellung → Verbindungen* einstellbar).
 * **Beschriftungen von Lasten** (F_1, q_0, M_1 …) lassen sich mit der Maus frei verschieben.
 * **Winkel an Kräften:** Winkelwerkzeug, Kraft anklicken, dann ein Element am Angriffspunkt, eine zweite Kraft oder
   eine freie Stelle (Bezugsachse). Ändert man den Winkelwert, dreht sich die Kraft mit.

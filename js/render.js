@@ -241,19 +241,19 @@
   TM.momentSVG = (L, n, ctx) => momentSVG(L, n, ctx);
 
   /** Symbole für Schiebehülse, drehbare Schiebehülse und Parallelführung (Querkraftgelenk). */
-  function jointSVG(n, bw) {
+  function jointSVG(n, bw, js = 1) {
     const p = P(n), t = sd(V.dir(n.jangle || 0)), q = { x: -t.y, y: t.x };
     const at = (a, b) => V.add(p, V.add(V.mul(t, a), V.mul(q, b)));
     const poly = (pts, extra) => `<polygon points="${pts.map((k) => `${c(k.x)},${c(k.y)}`).join(' ')}" ${extra}/>`;
     const st = `stroke="${ink}" stroke-width="1.7" stroke-linejoin="round"`;
     if (n.joint === 'sleeve' || n.joint === 'sleevepin') {
-      const L = 14, H = bw / 2 + 4.5;
-      let s = poly([at(-L, -H), at(L, -H), at(L, H), at(-L, H)], `fill="none" ${st}`);
-      if (n.joint === 'sleevepin') s += `<circle cx="${c(p.x)}" cy="${c(p.y)}" r="${STY.hinge}" fill="#fff" stroke="${ink}" stroke-width="1.5"/>`;
+      const L = 14 * js, H = bw / 2 + 4.5 * js;
+      let s = poly([at(-L, -H), at(L, -H), at(L, H), at(-L, H)], `fill="#fff" fill-opacity="0.35" ${st.replace('1.7', String(c(1.7 * Math.sqrt(js))))}`);
+      if (n.joint === 'sleevepin') s += `<circle cx="${c(p.x)}" cy="${c(p.y)}" r="${c(STY.hinge * js)}" fill="#fff" stroke="${ink}" stroke-width="1.6"/>`;
       return s;
     }
     if (n.joint === 'parallel') {
-      const g = 6, H = bw / 2 + 8, o = bw / 2 + 3.5;
+      const g = 6 * js, H = bw / 2 + 8 * js, o = bw / 2 + 3.5 * js;
       let s = poly([at(-g + 1, -bw / 2 - 1), at(g - 1, -bw / 2 - 1), at(g - 1, bw / 2 + 1), at(-g + 1, bw / 2 + 1)], 'fill="#fff" stroke="none"');
       s += line(at(-g, -H), at(-g, H), 2.2) + line(at(g, -H), at(g, H), 2.2);
       for (const k of [-o - 2, o + 2]) s += line(at(-g, k), at(g, k), 1.3);
@@ -448,9 +448,10 @@
       if (!values) return { t: L.label, it: true };
       const u = TM.units(doc);
 
-      const unit = L.type === 'force' ? u.F : L.type === 'moment' ? u.M : L.type === 'mass' ? 'kg' : u.q;
+      const unit = TM.loadUnit(doc, L);
       return { t: `${TM.fmtNum(+L.value || 0)} ${unit}`, it: false };
     };
+    const js = doc.meta.jointSize ?? 1.5;
     const ctx = { beamAt, pinAt, bw, values, lab };
     const pg = TM.model.pulleyGeom(doc);
     const hw = c(14 / z);
@@ -517,7 +518,7 @@
     // Verbindungen (Schiebehülsen, Parallelführung)
     for (const n of doc.nodes) {
       if (!n.joint) continue;
-      out += `<g pointer-events="none">${jointSVG(n, bw)}</g>`;
+      out += `<g pointer-events="none">${jointSVG(n, bw, js)}</g>`;
     }
 
     // Rollen und Trommeln
@@ -560,8 +561,11 @@
 
     // Gelenke
     for (const id of pinAt) {
-      const p = P(nodes.get(id));
-      out += `<circle pointer-events="none" cx="${c(p.x)}" cy="${c(p.y)}" r="${STY.hinge}" fill="#fff" stroke="${ink}" stroke-width="1.5"/>`;
+      const n = nodes.get(id), p = P(n);
+      // Gelenke, die Tragwerksteile verbinden, werden hervorgehoben
+      const big = n.hinge && doc.elements.filter((e) => e.n1 === id || e.n2 === id).length >= 2;
+      const r = big ? STY.hinge * js : STY.hinge;
+      out += `<circle pointer-events="none" cx="${c(p.x)}" cy="${c(p.y)}" r="${c(r)}" fill="#fff" stroke="${ink}" stroke-width="${big ? 1.8 : 1.5}"/>`;
     }
 
     // Element-Beschriftungen

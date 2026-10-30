@@ -21,8 +21,9 @@
     drop: null,
     mouse: null,
     mode: 'edit', // 'edit' | 'solve'
+    convertUnits: true,
     res: null,
-    sopt: { show: { N: true, Q: true, M: true }, layout: 'stack', scale: 1, freebody: true, couple: true, geometry: false, variants: 4 },
+    sopt: { show: { N: true, Q: true, M: true }, layout: 'stack', scale: 1, freebody: true, cut: false, couple: true, geometry: false, variants: 4 },
     syncers: [],
   };
 
@@ -1220,15 +1221,27 @@
     setSel({ kind: 'dim', id: d.id });
   }
 
+  const afterUnit = () => setTimeout(() => { buildProps(); if (ed.mode === 'solve') buildSolvePanel(); });
+  /** Auswahl der Einheiten (Länge, Kraft, Masse). */
+  function unitFields(ui) {
+    const m = ed.doc.meta;
+    ui.select('Längeneinheit', () => m.unit || 'm', (v) => { TM.setUnit(ed.doc, 'unit', v, false); afterUnit(); }, TM.UNIT_OPTIONS.unit);
+    ui.select('Krafteinheit', () => m.funit || 'kN', (v) => { TM.setUnit(ed.doc, 'funit', v, ed.convertUnits); afterUnit(); }, TM.UNIT_OPTIONS.funit);
+    ui.select('Masseneinheit', () => m.munit || 'kg', (v) => { TM.setUnit(ed.doc, 'munit', v, ed.convertUnits); afterUnit(); }, TM.UNIT_OPTIONS.munit);
+    ui.check('Lastwerte beim Wechsel umrechnen', () => ed.convertUnits, (v) => (ed.convertUnits = v), { noUndo: true });
+    const u = TM.units(ed.doc);
+    ui.note(`Momente in ${TM.esc(u.M)}, Streckenlasten in ${TM.esc(u.q)}. Die Längeneinheit benennt das Raster (1 Rasterlänge = 1 ${TM.esc(u.L)}).`);
+  }
+
   function docProps(ui) {
     const m = ed.doc.meta;
     ui.text('Titel', () => m.title, (v) => (m.title = v), { ph: 'z. B. Aufgabe 1' });
     ui.text('Aufgabentext', () => m.text, (v) => (m.text = v), { area: true, ph: 'Gegeben: …\nGesucht: …' });
     ui.section('Darstellung');
-    ui.text('Längeneinheit', () => m.unit, (v) => (m.unit = v), { ph: 'm' });
-    ui.text('Krafteinheit', () => m.funit, (v) => (m.funit = v), { ph: 'kN' });
+    unitFields(ui);
     ui.check('Zahlenwerte statt Bezeichnungen', () => m.showValues, (v) => (m.showValues = v));
     ui.select('Balken', () => m.beamStyle, (v) => (m.beamStyle = v), [['outline', 'Kontur (Lehrbuch)'], ['solid', 'Linie, gefüllt']]);
+    ui.select('Verbindungen', () => String(m.jointSize ?? 1.5), (v) => (m.jointSize = +v), [['1', 'normal'], ['1.5', 'groß'], ['2', 'sehr groß'], ['2.5', 'extra groß']]);
     ui.num('Rasterweite', () => m.grid, (v) => { if (v > 0) m.grid = v; }, { step: 0.25 });
     ui.check('Raster anzeigen', () => m.showGrid !== false, (v) => (m.showGrid = v));
     ui.check('Fangen am Raster', () => m.snap !== false, (v) => (m.snap = v));
@@ -1317,7 +1330,7 @@
       const res = o.res || TM.solve(doc);
       const ok = res && res.members;
       content = TM.render(doc, { edit: false, hideSupports: ok, solved: ok ? new Map(res.unknownLoads.map((x) => [x.l.id, x.v])) : null }) +
-        (ok ? TM.renderSolution(doc, res, { show: { N: true, Q: true, M: true }, layout: 'stack', scale: ed.sopt.scale, freebody: true }) : '');
+        (ok ? TM.renderSolution(doc, res, { show: { N: true, Q: true, M: true }, layout: 'stack', scale: ed.sopt.scale, freebody: true, cut: ed.sopt.cut }) : '');
     } else content = TM.render(doc, { edit: false });
     const tmp = document.createElementNS(NS, 'svg');
     tmp.setAttribute('style', 'position:absolute;left:-10000px;top:0;width:10px;height:10px');
@@ -1613,6 +1626,10 @@
     r.appendChild(rng);
     pane.appendChild(r);
     ui.check('Freikörperbild (Lagerreaktionen)', () => o.freebody, (v) => (o.freebody = v), { noUndo: true });
+    ui.check('Teilsysteme freigeschnitten zeigen', () => o.cut, (v) => { o.cut = v; requestAnimationFrame(fitView); }, { noUndo: true });
+    ui.note('Freigeschnitten: jeder Körper einzeln mit Lagerreaktionen und Verbindungskräften (actio = reactio, violett).');
+    ui.section('Einheiten');
+    unitFields(ui);
 
     ui.section('Werte verändern');
     ui.note('Änderungen wirken sofort auf die Lösung. Kräfte lassen sich auf der Zeichenfläche entlang des Balkens ziehen, Knoten verschieben.');

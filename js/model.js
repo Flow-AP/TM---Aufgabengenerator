@@ -55,7 +55,7 @@ window.TM = window.TM || {};
     loads: [],
     dims: [],
     texts: [],
-    meta: { title: '', text: '', unit: '', funit: 'kN', showValues: false, beamStyle: 'outline', grid: 0.5, showGrid: true, snap: true },
+    meta: { title: '', text: '', unit: 'm', funit: 'kN', munit: 'kg', jointSize: 1.5, showValues: false, beamStyle: 'outline', grid: 0.5, showGrid: true, snap: true },
   });
 
   const M = (TM.model = {});
@@ -335,6 +335,7 @@ window.TM = window.TM || {};
     const base = TM.newDoc();
     for (const k of Object.keys(base)) if (doc[k] == null) doc[k] = base[k];
     doc.meta = Object.assign(base.meta, doc.meta || {});
+    if (!doc.meta.unit) doc.meta.unit = 'm';
     for (const l of doc.loads) if (l.value == null) l.value = l.type === 'lineload' ? 5 : l.type === 'mass' ? 50 : 10;
     M.cleanup(doc);
     return doc;

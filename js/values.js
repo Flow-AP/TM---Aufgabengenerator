@@ -6,19 +6,44 @@
 (function (TM) {
   const V = TM.V, M = TM.model;
 
+  TM.UNIT_OPTIONS = {
+    unit: [['mm', 'mm'], ['cm', 'cm'], ['m', 'm']],
+    funit: [['N', 'N'], ['kN', 'kN'], ['MN', 'MN']],
+    munit: [['g', 'g'], ['kg', 'kg'], ['t', 't']],
+  };
+  const FORCE = { N: 1, daN: 10, kN: 1e3, MN: 1e6 };
+  const MASS = { g: 1e-3, kg: 1, t: 1e3 };
+
   TM.units = (doc) => {
     const L = doc.meta.unit || 'm', F = doc.meta.funit || 'kN';
-    return { L, F, M: F + L, q: `${F}/${L}` };
+    return { L, F, M: F + L, q: `${F}/${L}`, m: doc.meta.munit || 'kg' };
   };
   TM.loadUnit = (doc, l) => {
     const u = TM.units(doc);
-    return l.type === 'force' ? u.F : l.type === 'moment' ? u.M : l.type === 'mass' ? 'kg' : u.q;
+    return l.type === 'force' ? u.F : l.type === 'moment' ? u.M : l.type === 'mass' ? u.m : u.q;
   };
   TM.defaultValue = (l) => (l.type === 'lineload' ? 5 : l.type === 'mass' ? 50 : 10);
-  /** Erdbeschleunigung in Krafteinheit pro kg. */
+  /** Gewichtskraft je Masseneinheit in der gewählten Krafteinheit (g = 9,81 m/s²). */
   TM.gUnit = (doc) => {
-    const f = { N: 1, kN: 1e-3, MN: 1e-6, daN: 0.1 }[doc.meta.funit || 'kN'];
-    return 9.81 * (f == null ? 1e-3 : f);
+    const f = FORCE[doc.meta.funit || 'kN'] || 1e3, m = MASS[doc.meta.munit || 'kg'] || 1;
+    return (9.81 * m) / f;
+  };
+
+  /**
+   * Wechselt eine Einheit. convert: Lastwerte umrechnen (nur Kraft- und Masseneinheit;
+   * Längen sind die Geometrie der Zeichnung und werden nur umbenannt).
+   */
+  TM.setUnit = (doc, key, v, convert) => {
+    const old = doc.meta[key] || { unit: 'm', funit: 'kN', munit: 'kg' }[key];
+    doc.meta[key] = v;
+    if (!convert || old === v) return;
+    if (key === 'funit') {
+      const k = (FORCE[old] || 1) / (FORCE[v] || 1);
+      for (const l of doc.loads) if (l.type !== 'mass') l.value = TM.clean((+l.value || 0) * k);
+    } else if (key === 'munit') {
+      const k = (MASS[old] || 1) / (MASS[v] || 1);
+      for (const l of doc.loads) if (l.type === 'mass') l.value = TM.clean((+l.value || 0) * k);
+    }
   };
 
   /** "2F" → {coef:2, sym:"F"}, "l/2" → {coef:0.5, sym:"l"}, "F_1" → {coef:1, sym:"F_1"}. */
